@@ -90,7 +90,7 @@ train_params = {
         'eta_min': 1e-3,
     },
     'dataloader': {
-        'batch_size': 4,
+        'batch_size': 10,
         'pin_memory': False,
         'num_workers': 0,
         'shuffle': False,
