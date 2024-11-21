@@ -18,7 +18,6 @@ from src.utils import bmtm, bmtv, bmmt
 from datetime import datetime
 from src.lie_algebra import SO3, CPUSO3
 
-scaler = torch.amp.GradScaler()
 
 class LearningBasedProcessing:
     def __init__(self, res_dir, tb_dir, net_class, net_params, address, dt):
@@ -168,12 +167,11 @@ class LearningBasedProcessing:
         loss_epoch = 0
         optimizer.zero_grad()
         for us, xs in dataloader:
-            with torch.amp.autocast():
-                us = dataloader.dataset.add_noise(us.cuda())
-                hat_xs = self.net(us)
-                loss = criterion(xs.cuda(), hat_xs)/len(dataloader)
-                loss.backward()
-                loss_epoch += loss.detach().cpu()
+            us = dataloader.dataset.add_noise(us.cuda())
+            hat_xs = self.net(us)
+            loss = criterion(xs.cuda(), hat_xs)/len(dataloader)
+            loss.backward()
+            loss_epoch += loss.detach().cpu()
         optimizer.step()
         return loss_epoch
 
