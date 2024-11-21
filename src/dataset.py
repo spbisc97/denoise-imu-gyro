@@ -366,3 +366,8 @@ class TUMVIDataset(BaseDataset):
                 'ps': p_gt.float(),
             }
             pdump(mondict, self.predata_dir, sequence + "_gt.p")
+
+
+# class KITTiDataset(BaseDataset):
+    
+    
