@@ -368,6 +368,104 @@ class TUMVIDataset(BaseDataset):
             pdump(mondict, self.predata_dir, sequence + "_gt.p")
 
 
-# class KITTiDataset(BaseDataset):
-    
-    
+
+class KITTiDataset(BaseDataset):
+    """
+    Dataloader for the KITTI Data Set.
+    """
+
+    def __init__(self, data_dir, predata_dir, train_seqs, val_seqs,
+                 test_seqs, mode, N, min_train_freq, max_train_freq, dt=0.005):
+        super().__init__(predata_dir, train_seqs, val_seqs, test_seqs, mode, N, min_train_freq, max_train_freq, dt)
+        # Convert raw data to pre-loaded data
+        self.read_data(data_dir)
+
+    def read_data(self, data_dir):
+        """Read the data from the dataset"""
+
+        f = os.path.join(self.predata_dir, '2011_09_26_drive_0001_sync_gt.p')
+        if os.path.exists(f):
+            return
+
+        print("Start read_data, be patient please")
+
+        def set_path(seq):
+            path_imu = os.path.join(data_dir, seq, seq[0:10],seq,"oxts", "data.csv")
+            path_gt = os.path.join(data_dir, seq, seq[0:10],seq, "oxts", "data.csv")
+            return path_imu, path_gt
+
+        sequences = os.listdir(data_dir)
+
+        # Read each sequence
+        for sequence in sequences:
+            print("\nSequence name: " + sequence)
+            path_imu, path_gt = set_path(sequence)
+            imu = np.genfromtxt(path_imu, delimiter=",", skip_header=1)
+            gt = np.genfromtxt(path_gt, delimiter=",", skip_header=1)
+
+            # Time synchronization between IMU and ground truth
+            t0 = np.max([gt[0, 0], imu[0, 0]])
+            t_end = np.min([gt[-1, 0], imu[-1, 0]])
+
+            # Start index
+            idx0_imu = np.searchsorted(imu[:, 0], t0)
+            idx0_gt = np.searchsorted(gt[:, 0], t0)
+
+            # End index
+            idx_end_imu = np.searchsorted(imu[:, 0], t_end, 'right')
+            idx_end_gt = np.searchsorted(gt[:, 0], t_end, 'right')
+
+            # Subsample
+            imu = imu[idx0_imu: idx_end_imu]
+            gt = gt[idx0_gt: idx_end_gt]
+            ts = imu[:, 0] / 1e9
+
+            # Interpolate
+            t_gt = gt[:, 0] / 1e9
+            gt = self.interpolate(gt, t_gt, ts)
+
+            # Take ground truth position
+            p_gt = gt[:, 1:4]
+            p_gt = p_gt - p_gt[0]
+
+            # Take ground truth quaternion pose
+            q_gt = SO3.qnorm(torch.Tensor(gt[:, 4:8]).double())
+            Rot_gt = SO3.from_quaternion(q_gt.cuda(), ordering='wxyz').cpu()
+
+            # Convert from numpy
+            p_gt = torch.Tensor(p_gt).double()
+            v_gt = torch.zeros_like(p_gt).double()
+            v_gt[1:] = (p_gt[1:] - p_gt[:-1]) / self.dt
+            imu = torch.Tensor(imu[:, 1:]).double()
+
+            # Compute pre-integration factors for all training
+            mtf = self.min_train_freq
+            dRot_ij = bmtm(Rot_gt[:-mtf], Rot_gt[mtf:])
+            dRot_ij = SO3.dnormalize(dRot_ij.cuda())
+            dxi_ij = SO3.log(dRot_ij).cpu()
+
+            # Masks with 1 when ground truth is available, 0 otherwise
+            masks = dxi_ij.new_ones(dxi_ij.shape[0])
+            tmp = np.searchsorted(t_gt, ts[:-mtf])
+            diff_t = ts[:-mtf] - t_gt[tmp]
+            masks[np.abs(diff_t) > 0.01] = 0
+
+            # Save all the sequence
+            mondict = {
+                'xs': torch.cat((dxi_ij, masks.unsqueeze(1)), 1).float(),
+                'us': imu.float(),
+            }
+            self.pdump(mondict, self.predata_dir, sequence + ".p")
+
+            # Save ground truth
+            mondict = {
+                'ts': ts,
+                'qs': q_gt.float(),
+                'vs': v_gt.float(),
+                'ps': p_gt.float(),
+            }
+            self.pdump(mondict, self.predata_dir, sequence + "_gt.p")
+
+    def pdump(self, obj, path, filename):
+        with open(os.path.join(path, filename), 'wb') as f:
+            pickle.dump(obj, f)
