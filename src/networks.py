@@ -115,7 +115,7 @@ class GyroNetWithRNN(BaseNet):
         self.gyro_Rot = torch.nn.Parameter(gyro_Rot)
         self.Id3 = torch.eye(3).cuda()
         
-        self.lstm = torch.nn.LSTM(6, 50, 2, batch_first=True, dropout=0.1)
+        self.lstm = torch.nn.LSTM(6, 50, 3, batch_first=True, dropout=0.1)
 
     def forward(self, us):
         # use LSTM
@@ -124,3 +124,72 @@ class GyroNetWithRNN(BaseNet):
         Rots = (self.Id3 + self.gyro_Rot).expand(us.shape[0], us.shape[1], 3, 3)
         Rot_us = bbmv(Rots, us[:, :, :3])
         return self.gyro_std*ys + Rot_us
+    
+    
+class GyroNetWithCNNRNN(BaseNet):
+    def __init__(self, in_dim, out_dim, c0, dropout, ks, ds, momentum,
+        gyro_std):
+        super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
+        gyro_std = torch.Tensor(gyro_std)
+        self.gyro_std = torch.nn.Parameter(gyro_std, requires_grad=False)
+
+        gyro_Rot = 0.05*torch.randn(3, 3).cuda()
+        self.gyro_Rot = torch.nn.Parameter(gyro_Rot)
+        self.Id3 = torch.eye(3).cuda()
+        
+        c1 = 2*c0
+        c2 = 2*c1
+        # c3 = 2*c2
+        
+        self.precnn = torch.nn.Sequential(
+            torch.nn.ReplicationPad1d((0, 0)), # padding at start
+            torch.nn.Conv1d(in_dim, c0, 1, dilation=1),
+            torch.nn.BatchNorm1d(c0, momentum=momentum),
+            torch.nn.GELU(),
+            torch.nn.Dropout(dropout),
+            
+            torch.nn.Conv1d(c0, c1, 1, dilation=1),
+            torch.nn.BatchNorm1d(c1, momentum=momentum),
+            torch.nn.GELU(),
+            torch.nn.Dropout(dropout),
+            
+            torch.nn.Conv1d(c1, c2, 1, dilation=1),
+            torch.nn.BatchNorm1d(c2, momentum=momentum),
+            torch.nn.GELU(),
+            torch.nn.Dropout(dropout),
+            
+            torch.nn.Conv1d(c2, in_dim, 1, dilation=1),
+            torch.nn.ReplicationPad1d((0, 0)), # no padding at end
+            
+            
+        )
+        
+        self.lstm = torch.nn.LSTM(6, 50, 4, batch_first=True, dropout=0.1)
+        
+        
+
+    def forward(self, us):
+        # use LSTM
+        
+
+        
+        us = us.permute(0, 2, 1)  # From [batch_size, sequence_length, channels] to [batch_size, channels, sequence_length]
+
+        u = self.norm(us).transpose(1, 2)
+        us = self.cnn(u).transpose(1, 2)
+        
+        us = us.permute(0, 2, 1)
+
+        ys = self.lstm(us)[0][:, :, :3]
+        Rots = (self.Id3 + self.gyro_Rot).expand(us.shape[0], us.shape[1], 3, 3)
+        Rot_us = bbmv(Rots, us[:, :, :3]) 
+        return self.gyro_std*ys + Rot_us
+    
+    def norm(self, us):
+        return (us-self.mean_u)/self.std_u
+
+    def set_normalized_factors(self, mean_u, std_u):
+        self.mean_u = torch.nn.Parameter(mean_u.cuda(), requires_grad=False)
+        self.std_u = torch.nn.Parameter(std_u.cuda(), requires_grad=False)
+        
+        

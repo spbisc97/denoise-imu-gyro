@@ -15,10 +15,10 @@ address = "last"
 ################################################################################
 # Network parameters
 ################################################################################
-net_class = sn.GyroNetWithRNN
+net_class = sn.GyroNetWithTRN
 net_params = {
     'in_dim': 6,
-    'out_dim': 3,
+    'out_dim': 6,
     'c0': 16,
     'dropout': 0.1,
     'ks': [7, 7, 7, 7],
