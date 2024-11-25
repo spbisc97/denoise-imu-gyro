@@ -7,7 +7,7 @@ import src.dataset as ds
 import numpy as np
 
 base_dir = os.path.dirname(os.path.realpath(__file__))
-data_dir = '/path/to/EUROC/dataset'
+data_dir = './data/EUROC/dataset'
 # test a given network
 # address = os.path.join(base_dir, 'results/EUROC/2020_02_18_16_52_55/')
 # or test the last trained network
@@ -39,25 +39,25 @@ dataset_params = {
     'train_seqs': [
         'MH_01_easy',
         'MH_03_medium',
-        'MH_05_difficult',
-        'V1_02_medium',
-        'V2_01_easy',
-        'V2_03_difficult'
+        # 'MH_05_difficult',
+        # 'V1_02_medium',
+        # 'V2_01_easy',
+        # 'V2_03_difficult'
         ],
     'val_seqs': [
         'MH_01_easy',
         'MH_03_medium',
-        'MH_05_difficult',
-        'V1_02_medium',
-        'V2_01_easy',
-        'V2_03_difficult',
+        # 'MH_05_difficult',
+        # 'V1_02_medium',
+        # 'V2_01_easy',
+        # 'V2_03_difficult',
         ],
     'test_seqs': [
         'MH_02_easy',
         'MH_04_difficult',
-        'V2_02_medium',
-        'V1_03_difficult',
-        'V1_01_easy',
+        # 'V2_02_medium',
+        # 'V1_03_difficult',
+        # 'V1_01_easy',
         ],
     # size of trajectory during training
     'N': 32 * 500, # should be integer * 'max_train_freq'
