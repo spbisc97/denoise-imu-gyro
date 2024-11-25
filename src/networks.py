@@ -85,3 +85,29 @@ class GyroNet(BaseNet):
 
 
 
+
+class GyroNetTrs(BaseNetTrs):
+    def __init__(self, in_dim, out_dim, c0, dropout, ks, ds, momentum, gyro_std):
+        super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
+        gyro_std = torch.Tensor(gyro_std)
+        self.gyro_std = torch.nn.Parameter(gyro_std, requires_grad=False)
+
+        gyro_Rot = 0.05 * torch.randn(3, 3).cuda()
+        self.gyro_Rot = torch.nn.Parameter(gyro_Rot)
+        self.Id3 = torch.eye(3).cuda()
+
+    def forward(self, us):
+        """
+        us: Input tensor of shape (batch_size, seq_length, in_dim)
+        """
+        # Pass through BaseNetTrs forward
+        ys = super().forward(us)  # (batch_size, seq_length, out_dim)
+
+        # Compute rotation matrix
+        Rots = (self.Id3 + self.gyro_Rot).expand(us.shape[0], us.shape[1], 3, 3)
+
+        # Apply rotation to gyroscope inputs
+        Rot_us = bbmv(Rots, us[:, :, :3])  # (batch_size, seq_length, 3)
+
+        # Combine gyro corrections and rotations
+        return self.gyro_std * ys + Rot_us
