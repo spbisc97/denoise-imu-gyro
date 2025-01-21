@@ -32,7 +32,6 @@ DATASETS = {
         "2011_09_26_drive_0002/2011_09_26_drive_0002_sync.zip",
         "2011_09_26_drive_0005/2011_09_26_drive_0005_sync.zip",
         "2011_09_26_drive_0011/2011_09_26_drive_0011_sync.zip",
-        "2011_09_26_drive_0017/2011_09_26_drive_0017_sync.zip",
     ],
     "TUMVI": [
         "dataset-corridor1_512_16.tar",
@@ -41,6 +40,10 @@ DATASETS = {
         "dataset-magistrale2_512_16.tar",
         "dataset-room1_512_16.tar",
         "dataset-room2_512_16.tar",
+        "dataset-room3_512_16.tar",
+        "dataset-room4_512_16.tar",
+        "dataset-room5_512_16.tar",
+        "dataset-room6_512_16.tar",
     ],
 }
 
@@ -105,7 +108,7 @@ def download_and_extract_datasets(concurrent_downloads=6):
     for source in URLS.keys():
         source_url = URLS[source]
         download_folder = os.path.join("data", source, "downloads")
-        extract_folder = os.path.join("data", source, "datasets")
+        extract_folder = os.path.join("data", source, "dataset")
 
         ensure_directory_exists(download_folder)
         ensure_directory_exists(extract_folder)

@@ -7,9 +7,9 @@ import src.dataset as ds
 import numpy as np
 
 base_dir = os.path.dirname(os.path.realpath(__file__))
-data_dir = '/path/to/TUM/dataset'
+data_dir = './data/TUMVI/dataset'
 # test a given network
-# address = os.path.join(base_dir, 'results/TUM/2020_02_18_16_26_33')
+# address = os.path.join(base_dir, 'results/TUMVI/2020_02_18_16_26_33')
 # or test the last trained network
 address = 'last'
 ################################################################################
@@ -34,7 +34,7 @@ dataset_params = {
     # where are raw data ?
     'data_dir': data_dir,
     # where record preloaded data ?
-    'predata_dir': os.path.join(base_dir, 'data/TUM'),
+    'predata_dir': os.path.join(base_dir, 'data/TUMVI'),
     # set train, val and test sequence
     'train_seqs': [
         'dataset-room1_512_16',
@@ -92,17 +92,17 @@ train_params = {
     # total number of epochs
     'n_epochs': 1800,
     # where record results ?
-    'res_dir': os.path.join(base_dir, "results/TUM"),
+    'res_dir': os.path.join(base_dir, "results/TUMVI"),
     # where record Tensorboard log ?
-    'tb_dir': os.path.join(base_dir, "results/runs/TUM"),
+    'tb_dir': os.path.join(base_dir, "results/runs/TUMVI"),
 }
 ################################################################################
 # Train on training data set
 ################################################################################
-# learning_process = lr.GyroLearningBasedProcessing(train_params['res_dir'],
-#    train_params['tb_dir'], net_class, net_params, None
-#    train_params['loss']['dt'])
-# learning_process.train(dataset_class, dataset_params, train_params)
+learning_process = lr.GyroLearningBasedProcessing(train_params['res_dir'],
+   train_params['tb_dir'], net_class, net_params, None,
+   train_params['loss']['dt'])
+learning_process.train(dataset_class, dataset_params, train_params)
 ################################################################################
 # Test on full data set
 ################################################################################
