@@ -4,3 +4,7 @@ datetime
 matplotlib
 termcolor
 pyyaml
+tensorboard
+tqdm
+requests
+scipy
