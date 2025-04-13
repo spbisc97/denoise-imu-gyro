@@ -370,6 +370,8 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         imu_rpys = 180/np.pi*SO3.to_rpy(imu_Rots).cpu()
         net_rpys = 180/np.pi*SO3.to_rpy(net_Rots).cpu()
         cal_rpys = 180/np.pi*SO3.to_rpy(cal_Rots).cpu()
+        cal_rpys = None
+        cal_Rots = None
         self.plot_orientation(imu_rpys, net_rpys, N,cal_rpys=cal_rpys)
         self.plot_orientation_error(imu_Rots, net_Rots, N,cal_Rots=cal_Rots)
 
@@ -382,9 +384,9 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         axs[2].set(xlabel='$t$ (min)', ylabel='yaw (deg)')
 
         for i in range(3):
-            axs[i].plot(self.ts, gt[:, i], color='black', label=r'ground truth')
-            axs[i].plot(self.ts, imu_rpys[:, i], color='red', label=r'raw IMU')
-            axs[i].plot(self.ts, net_rpys[:, i], color='blue', label=r'net IMU')
+            axs[i].plot(self.ts, gt[:, i], color='black', label=r'Reference')
+            axs[i].plot(self.ts, imu_rpys[:, i], color='red', label=r'Std IMU')
+            axs[i].plot(self.ts, net_rpys[:, i], color='blue', label=r'LLyte IMU')
             if cal_rpys is not None:
                 axs[i].plot(self.ts, cal_rpys[:, i], color='green', label=r'cal IMU')
             axs[i].set_xlim(self.ts[0], self.ts[-1])
@@ -403,8 +405,11 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         axs[2].set(xlabel='$t$ (min)', ylabel='yaw (deg)')
 
         for i in range(3):
-            axs[i].plot(self.ts, raw_err[:, i], color='red', label=r'raw IMU')
-            axs[i].plot(self.ts, net_err[:, i], color='blue', label=r'net IMU')
+            axs[i].plot(self.ts, raw_err[:, i], color='red', label=r'Std IMU')
+            axs[i].plot(self.ts, net_err[:, i], color='blue', label=r'LLyte IMU')
+            if cal_Rots is not None:
+                axs[i].plot(self.ts, cal_err[:, i], color='green', label=r'cal IMU')
+            axs[i].plot(self.ts, torch.zeros(N), color='black', linestyle='--')
             axs[i].set_ylim(-10, 10)
             axs[i].set_xlim(self.ts[0], self.ts[-1])
         self.savefig(axs, fig, 'orientation_error')
@@ -414,7 +419,7 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         ylabel = 'gyro correction (deg/s)'
         fig, ax = plt.subplots(figsize=self.figsize)
         ax.set(xlabel='$t$ (min)', ylabel=ylabel, title=title)
-        plt.plot(self.ts, self.gyro_corrections, label=r'net IMU')
+        plt.plot(self.ts, self.gyro_corrections, label=r'LLyte Correction')
         ax.set_xlim(self.ts[0], self.ts[-1])
         self.savefig(ax, fig, 'gyro_correction')
 

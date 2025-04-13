@@ -99,6 +99,11 @@ def process_dataset(source_url, dataset_path, download_folder, extract_folder):
     download_path = os.path.join(download_folder, file_name)
     extract_path = os.path.join(extract_folder, os.path.splitext(file_name)[0])
 
+    # Check if the dataset is already extracted
+    if os.path.exists(extract_path):
+        print(f"[INFO] Dataset already exists: {extract_path}. Skipping download and extraction.")
+        return
+
     # Download and extract dataset
     download_file(file_url, download_path)
     extract_file(download_path, extract_path)

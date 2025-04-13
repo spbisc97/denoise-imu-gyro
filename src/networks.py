@@ -62,6 +62,10 @@ class BaseNet(torch.nn.Module):
         return (us-self.mean_u)/self.std_u
 
     def set_normalized_factors(self, mean_u, std_u):
+        if isinstance(mean_u, int):
+            mean_u = torch.tensor(mean_u, dtype=torch.float32)
+        if isinstance(std_u, int):
+            std_u = torch.tensor(std_u, dtype=torch.float32)
         self.mean_u = torch.nn.Parameter(mean_u.cuda(), requires_grad=False)
         self.std_u = torch.nn.Parameter(std_u.cuda(), requires_grad=False)
 
@@ -189,6 +193,10 @@ class GyroNetWithCNNRNN(BaseNet):
         return (us-self.mean_u)/self.std_u
 
     def set_normalized_factors(self, mean_u, std_u):
+        if isinstance(mean_u, int):
+            mean_u = torch.tensor(mean_u, dtype=torch.float32)
+        if isinstance(std_u, int):
+            std_u = torch.tensor(std_u, dtype=torch.float32)
         self.mean_u = torch.nn.Parameter(mean_u.cuda(), requires_grad=False)
         self.std_u = torch.nn.Parameter(std_u.cuda(), requires_grad=False)
         

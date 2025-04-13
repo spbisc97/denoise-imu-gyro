@@ -39,25 +39,25 @@ dataset_params = {
     'train_seqs': [
         'MH_01_easy',
         'MH_03_medium',
-        #'MH_05_difficult',
-        #'V1_02_medium',
-        #'V2_01_easy',
-        #'V2_03_difficult'
+        'MH_05_difficult',
+        'V1_02_medium',
+        'V2_01_easy',
+        'V2_03_difficult'
         ],
     'val_seqs': [
         'MH_01_easy',
         'MH_03_medium',
-        # 'MH_05_difficult',
-        # 'V1_02_medium',
-        # 'V2_01_easy',
-        # 'V2_03_difficult',
+        'MH_05_difficult',
+        'V1_02_medium',
+        'V2_01_easy',
+        'V2_03_difficult',
         ],
     'test_seqs': [
         'MH_02_easy',
         'MH_04_difficult',
-        # 'V2_02_medium',
-        # 'V1_03_difficult',
-        # 'V1_01_easy',
+        'V2_02_medium',
+        'V1_03_difficult',
+        'V1_01_easy',
         ],
     # size of trajectory during training
     'N': 32 * 500, # should be integer * 'max_train_freq'
@@ -107,10 +107,10 @@ train_params = {
 ################################################################################
 # Train on training data set
 ################################################################################
-# learning_process = lr.GyroLearningBasedProcessing(train_params['res_dir'],
-#    train_params['tb_dir'], net_class, net_params, None,
-#    train_params['loss']['dt'])
-# learning_process.train(dataset_class, dataset_params, train_params)
+learning_process = lr.GyroLearningBasedProcessing(train_params['res_dir'],
+   train_params['tb_dir'], net_class, net_params, None,
+   train_params['loss']['dt'])
+learning_process.train(dataset_class, dataset_params, train_params)
 ################################################################################
 # Test on full data set
 ################################################################################
