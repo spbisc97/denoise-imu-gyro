@@ -31,6 +31,7 @@ class LearningBasedProcessing:
         self.figsize = (20, 12)
         self.dt = dt # (s)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.show_plots = False
         self.address, self.tb_address = self.find_address(address)
         if address is None:  # create new address
             pdump(self.net_params, self.address, 'net_params.p')
@@ -67,7 +68,16 @@ class LearningBasedProcessing:
 
     def load_weights(self):
         weights = torch.load(self.path_weights, map_location=self.device)
-        self.net.load_state_dict(weights)
+        try:
+            self.net.load_state_dict(weights)
+        except RuntimeError as e:
+            # Backward compatibility if model definition changed (e.g., new params).
+            print(f"[WARN] Strict load failed ({e}); retrying with strict=False")
+            missing, unexpected = self.net.load_state_dict(weights, strict=False)
+            if missing:
+                print(f"[WARN] Missing keys: {missing}")
+            if unexpected:
+                print(f"[WARN] Unexpected keys: {unexpected}")
         self.net.to(self.device)
 
     def train(self, dataset_class, dataset_params, train_params):
@@ -130,7 +140,10 @@ class LearningBasedProcessing:
             writer.add_scalar('time_spend', delta_t, epoch)
 
         def write_val(loss, best_loss):
-            if 0.5*loss <= best_loss:
+            if not torch.isfinite(loss):
+                msg = 'validation loss is not finite (NaN/Inf)'
+                cprint(msg, 'yellow')
+            elif 0.5*loss <= best_loss:
                 msg = 'validation loss decreases! :) '
                 msg += '(curr/prev loss {:.4f}/{:.4f})'.format(loss.item(),
                     best_loss.item())
@@ -156,6 +169,10 @@ class LearningBasedProcessing:
                 best_loss = write_val(loss, best_loss)
                 start_time = time.time()
         # training is over !
+
+        if not os.path.exists(self.path_weights):
+            # Ensure there is at least one set of weights to load for testing.
+            self.save_net()
 
         # test on new data
         dataset_test = dataset_class(**dataset_params, mode='test')
@@ -274,6 +291,36 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
             }
         self.gyro_biases = [4.5,1.2,-0.2] # deg/s
         self.enable_calibrated_imu_baseline = False
+        self.calib_baseline_steps = 300
+        self.calib_baseline_lr = 5e-2
+        self.init_from_calib_baseline = False
+        self.freeze_calib_params = False
+
+    def apply_calib_to_net(self, calib):
+        """Initialize the net's static calibration parameters from a calib dict."""
+        with torch.no_grad():
+            if hasattr(self.net, "gyro_Rot") and "dC" in calib:
+                self.net.gyro_Rot.copy_(calib["dC"].to(self.net.gyro_Rot.device))
+            if hasattr(self.net, "gyro_bias") and "b" in calib:
+                self.net.gyro_bias.copy_(calib["b"].to(self.net.gyro_bias.device))
+
+        if self.freeze_calib_params:
+            if hasattr(self.net, "gyro_Rot"):
+                self.net.gyro_Rot.requires_grad_(False)
+            if hasattr(self.net, "gyro_bias"):
+                self.net.gyro_bias.requires_grad_(False)
+
+    def train(self, dataset_class, dataset_params, train_params):
+        if self.init_from_calib_baseline:
+            calib = self.fit_calibrated_imu(
+                dataset_class,
+                dataset_params,
+                train_params,
+                n_steps=int(self.calib_baseline_steps),
+                lr=float(self.calib_baseline_lr),
+            )
+            self.apply_calib_to_net(calib)
+        return super().train(dataset_class, dataset_params, train_params)
 
     def fit_calibrated_imu(self, dataset_class, dataset_params, train_params, *, n_steps=300, lr=5e-2):
         """
@@ -311,7 +358,9 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         model.train()
         for step in range(1, n_steps + 1):
             us, xs = next(it)
-            us = dataset_train.add_noise(us.to(self.device))
+            # Calibrated-IMU baseline optimizes static parameters; do not inject
+            # artificial noise here to keep it comparable to evaluation.
+            us = us.to(self.device)
             xs = xs.to(self.device)
             hat_xs = model(us)
             loss = criterion(xs, hat_xs)
@@ -340,7 +389,13 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         }
         calib = None
         if getattr(self, "enable_calibrated_imu_baseline", False):
-            calib = self.fit_calibrated_imu(self.dataset_class, self.dataset_params, self.train_params)
+            calib = self.fit_calibrated_imu(
+                self.dataset_class,
+                self.dataset_params,
+                self.train_params,
+                n_steps=int(self.calib_baseline_steps),
+                lr=float(self.calib_baseline_lr),
+            )
 
         self.to_open_vins(dataset)
         for i, seq in enumerate(dataset.sequences):
@@ -361,7 +416,8 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
             self.convert()
             self.plot_gyro(calib=calib)
             self.plot_gyro_correction()
-            plt.show()
+            if self.show_plots:
+                plt.show()
 
     def to_open_vins(self, dataset):
         """

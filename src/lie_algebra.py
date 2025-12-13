@@ -290,7 +290,11 @@ class SO3:
 
     @staticmethod
     def sinc(x):
-        return x.sin() / x
+        # Stable sin(x)/x with Taylor expansion near 0 to avoid NaNs.
+        eps = 1e-8
+        x2 = x * x
+        approx = 1 - x2 / 6.0
+        return torch.where(x.abs() < eps, approx, x.sin() / x)
 
     @classmethod
     def qexp(cls, xi, ordering='wxyz'):

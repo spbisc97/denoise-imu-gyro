@@ -74,13 +74,14 @@ class GyroNet(BaseNet):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
         self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
         self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.gyro_bias = torch.nn.Parameter(torch.zeros(3))
         self.register_buffer('Id3', torch.eye(3))
 
     def forward(self, us):
         ys = super().forward(us)
         Rots = (self.Id3 + self.gyro_Rot).expand(us.shape[0], us.shape[1], 3, 3)
         Rot_us = bbmv(Rots, us[:, :, :3])
-        return self.gyro_std*ys.transpose(1, 2) + Rot_us
+        return self.gyro_std*ys.transpose(1, 2) + Rot_us + self.gyro_bias.view(1, 1, 3)
 
 
 class GyroNetWithoutAcc(BaseNet):
@@ -89,6 +90,7 @@ class GyroNetWithoutAcc(BaseNet):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
         self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
         self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.gyro_bias = torch.nn.Parameter(torch.zeros(3))
         self.register_buffer('Id3', torch.eye(3))
 
     def forward(self, us):
@@ -97,7 +99,7 @@ class GyroNetWithoutAcc(BaseNet):
         ys = super().forward(us)
         Rots = (self.Id3 + self.gyro_Rot).expand(us.shape[0], us.shape[1], 3, 3)
         Rot_us = bbmv(Rots, us[:, :, :3])
-        return self.gyro_std*ys.transpose(1, 2) + Rot_us
+        return self.gyro_std*ys.transpose(1, 2) + Rot_us + self.gyro_bias.view(1, 1, 3)
     
     
 class GyroNetWithRNN(BaseNet):
@@ -106,6 +108,7 @@ class GyroNetWithRNN(BaseNet):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
         self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
         self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.gyro_bias = torch.nn.Parameter(torch.zeros(3))
         self.register_buffer('Id3', torch.eye(3))
         
         self.lstm = torch.nn.LSTM(6, 50, 3, batch_first=True, dropout=0.1)
@@ -116,7 +119,7 @@ class GyroNetWithRNN(BaseNet):
         ys = self.lstm(us)[0][:, :, :3]
         Rots = (self.Id3 + self.gyro_Rot).expand(us.shape[0], us.shape[1], 3, 3)
         Rot_us = bbmv(Rots, us[:, :, :3])
-        return self.gyro_std*ys + Rot_us
+        return self.gyro_std*ys + Rot_us + self.gyro_bias.view(1, 1, 3)
     
     
 class GyroNetWithCNNRNN(BaseNet):
@@ -125,6 +128,7 @@ class GyroNetWithCNNRNN(BaseNet):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
         self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
         self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.gyro_bias = torch.nn.Parameter(torch.zeros(3))
         self.register_buffer('Id3', torch.eye(3))
         
         c1 = 2*c0
@@ -173,7 +177,7 @@ class GyroNetWithCNNRNN(BaseNet):
         ys = self.lstm(us)[0][:, :, :3]
         Rots = (self.Id3 + self.gyro_Rot).expand(us.shape[0], us.shape[1], 3, 3)
         Rot_us = bbmv(Rots, us[:, :, :3]) 
-        return self.gyro_std*ys + Rot_us
+        return self.gyro_std*ys + Rot_us + self.gyro_bias.view(1, 1, 3)
     
     def norm(self, us):
         return (us-self.mean_u)/self.std_u

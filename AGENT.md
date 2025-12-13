@@ -80,6 +80,7 @@ Downloading datasets (network required):
 - Paths: `src/dataset.py` creates `predata_dir` automatically; `src/learning.py` creates `res_dir` and `tb_dir`.
 - Loss stability: `GyroLoss` can produce NaNs on arbitrary random inputs; smoke tests use small-magnitude synthetic inputs.
 - Calibrated-IMU baseline: implemented as a static correction `(I + dC)ω + b` optimized by gradient descent (paper “calibrated IMU” comparison); enabled via `main_EUROC.py --calib-baseline`.
+- Two-stage training option: you can fit the calibrated-IMU baseline first and use it to initialize the model calibration params via `main_EUROC.py --calib-init` (optionally `--calib-freeze`).
 
 ## Docs
 
