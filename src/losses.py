@@ -35,8 +35,10 @@ class GyroLoss(BaseLoss):
         elif target == 'quaternion mask':
             self.forward = self.forward_with_quaternion_mask
         self.huber = huber
-        self.weight = torch.ones(1, 1,
-            self.min_train_freq).cuda()/self.min_train_freq
+        self.register_buffer(
+            'weight',
+            torch.ones(1, 1, self.min_train_freq, dtype=torch.float32) / self.min_train_freq,
+        )
         self.N0 = 5 # remove first N0 increment in loss due not account padding
 
     def f_huber(self, rs):

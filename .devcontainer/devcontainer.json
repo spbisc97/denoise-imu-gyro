@@ -1,0 +1,17 @@
+{
+  "name": "Denoise IMU Gyro Dev Container",
+  "image": "pytorch/pytorch:rocm5.6-ubuntu20.04-py3.9",
+  "runArgs": ["--device=/dev/kfd", "--device=/dev/dri", "--group-add=video"],
+  "postCreateCommand": "pip install --no-cache-dir numpy matplotlib pyyaml scipy requests tqdm tensorboard termcolor",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pylint",
+        "ms-toolsai.jupyter"
+      ]
+    }
+  },
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/${localWorkspaceFolderBasename},type=bind,consistency=cached"
+}

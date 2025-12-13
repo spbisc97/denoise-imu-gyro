@@ -2,7 +2,8 @@ import torch
 from src.lie_algebra import SO3
 
 # define two rotation from roll pitch yaw
-rpys = torch.zeros(2, 3).cuda()
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+rpys = torch.zeros(2, 3, device=device)
 rpys[0, 0] = 0.3
 rpys[0, 1] = -0.2
 rpys[0, 2] = 0.6

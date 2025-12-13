@@ -1,4 +1,6 @@
 import os
+import argparse
+import sys
 import torch
 import src.learning as lr
 import src.networks as sn
@@ -104,17 +106,84 @@ train_params = {
     # where record Tensorboard log ?
     'tb_dir': os.path.join(base_dir, "results/runs/EUROC"),
 }
+
+
+def _smoke_test():
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    net = net_class(**net_params).to(device)
+    net.set_normalized_factors(torch.zeros(net_params['in_dim']), torch.ones(net_params['in_dim']))
+    us = (1e-3 * torch.randn(2, 256, net_params['in_dim'], device=device)).float()
+    hat_xs = net(us)
+    Loss = train_params['loss_class']
+    criterion = Loss(**train_params['loss']).to(device)
+    target = train_params['loss']['target']
+    x_dim = 4 if 'mask' in target else 3
+    xs = (1e-3 * torch.randn(2, 256, x_dim, device=device)).float()
+    if x_dim == 4:
+        xs[:, :, 3] = 1.0
+    loss = criterion(xs, hat_xs)
+    print('smoke_ok', hat_xs.shape, float(loss.detach().cpu()))
+
+
+def main():
+    global data_dir, address
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', choices=['auto', 'train', 'test', 'smoke'], default='auto')
+    parser.add_argument('--data-dir', default=data_dir)
+    parser.add_argument('--address', default=address, help="Weights/run to test: 'last' or a path")
+    parser.add_argument(
+        '--calib-baseline',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Include 'calibrated IMU' (static GD) baseline on test runs.",
+    )
+    args = parser.parse_args()
+
+    data_dir = args.data_dir
+    dataset_params['data_dir'] = data_dir
+    address = args.address
+
+    if args.mode == 'smoke':
+        _smoke_test()
+        return 0
+
+    if not os.path.isdir(data_dir):
+        print(f"Missing dataset directory: {data_dir!r}", file=sys.stderr)
+        print("Download/extract datasets into ./data/ (see datasets_downloader.py), or pass --data-dir.", file=sys.stderr)
+        return 2
+
+    res_dir = train_params['res_dir']
+    has_runs = os.path.isdir(res_dir) and len(os.listdir(res_dir)) > 0
+    mode = args.mode
+    if mode == 'auto':
+        mode = 'test' if has_runs else 'train'
+
+    if mode == 'train':
+        learning_process = lr.GyroLearningBasedProcessing(
+            train_params['res_dir'],
+            train_params['tb_dir'],
+            net_class,
+            net_params,
+            address=None,
+            dt=train_params['loss']['dt'],
+        )
+        learning_process.train(dataset_class, dataset_params, train_params)
+        return 0
+
+    learning_process = lr.GyroLearningBasedProcessing(
+        train_params['res_dir'],
+        train_params['tb_dir'],
+        net_class,
+        net_params,
+        address=address,
+        dt=train_params['loss']['dt'],
+    )
+    learning_process.enable_calibrated_imu_baseline = bool(args.calib_baseline)
+    learning_process.test(dataset_class, dataset_params, ['test'])
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
 ################################################################################
-# Train on training data set
-################################################################################
-learning_process = lr.GyroLearningBasedProcessing(train_params['res_dir'],
-   train_params['tb_dir'], net_class, net_params, None,
-   train_params['loss']['dt'])
-learning_process.train(dataset_class, dataset_params, train_params)
-################################################################################
-# Test on full data set
-################################################################################
-learning_process = lr.GyroLearningBasedProcessing(train_params['res_dir'],
-    train_params['tb_dir'], net_class, net_params, address=address,
-    dt=train_params['loss']['dt'])
-learning_process.test(dataset_class, dataset_params, ['test'])

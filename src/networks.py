@@ -48,10 +48,8 @@ class BaseNet(torch.nn.Module):
             torch.nn.ReplicationPad1d((0, 0)), # no padding at end
         )
         # for normalizing inputs
-        self.mean_u = torch.nn.Parameter(torch.zeros(in_dim),
-            requires_grad=False)
-        self.std_u = torch.nn.Parameter(torch.ones(in_dim),
-            requires_grad=False)
+        self.register_buffer('mean_u', torch.zeros(in_dim))
+        self.register_buffer('std_u', torch.ones(in_dim))
 
     def forward(self, us):
         u = self.norm(us).transpose(1, 2)
@@ -66,20 +64,17 @@ class BaseNet(torch.nn.Module):
             mean_u = torch.tensor(mean_u, dtype=torch.float32)
         if isinstance(std_u, int):
             std_u = torch.tensor(std_u, dtype=torch.float32)
-        self.mean_u = torch.nn.Parameter(mean_u.cuda(), requires_grad=False)
-        self.std_u = torch.nn.Parameter(std_u.cuda(), requires_grad=False)
+        self.mean_u.copy_(mean_u.to(self.mean_u.device))
+        self.std_u.copy_(std_u.to(self.std_u.device))
 
 
 class GyroNet(BaseNet):
     def __init__(self, in_dim, out_dim, c0, dropout, ks, ds, momentum,
         gyro_std):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
-        gyro_std = torch.Tensor(gyro_std)
-        self.gyro_std = torch.nn.Parameter(gyro_std, requires_grad=False)
-
-        gyro_Rot = 0.05*torch.randn(3, 3).cuda()
-        self.gyro_Rot = torch.nn.Parameter(gyro_Rot)
-        self.Id3 = torch.eye(3).cuda()
+        self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
+        self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.register_buffer('Id3', torch.eye(3))
 
     def forward(self, us):
         ys = super().forward(us)
@@ -92,12 +87,9 @@ class GyroNetWithoutAcc(BaseNet):
     def __init__(self, in_dim, out_dim, c0, dropout, ks, ds, momentum,
         gyro_std):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
-        gyro_std = torch.Tensor(gyro_std)
-        self.gyro_std = torch.nn.Parameter(gyro_std, requires_grad=False)
-
-        gyro_Rot = 0.05*torch.randn(3, 3).cuda()
-        self.gyro_Rot = torch.nn.Parameter(gyro_Rot)
-        self.Id3 = torch.eye(3).cuda()
+        self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
+        self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.register_buffer('Id3', torch.eye(3))
 
     def forward(self, us):
         # set accelerometer to 0
@@ -112,12 +104,9 @@ class GyroNetWithRNN(BaseNet):
     def __init__(self, in_dim, out_dim, c0, dropout, ks, ds, momentum,
         gyro_std):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
-        gyro_std = torch.Tensor(gyro_std)
-        self.gyro_std = torch.nn.Parameter(gyro_std, requires_grad=False)
-
-        gyro_Rot = 0.05*torch.randn(3, 3).cuda()
-        self.gyro_Rot = torch.nn.Parameter(gyro_Rot)
-        self.Id3 = torch.eye(3).cuda()
+        self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
+        self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.register_buffer('Id3', torch.eye(3))
         
         self.lstm = torch.nn.LSTM(6, 50, 3, batch_first=True, dropout=0.1)
 
@@ -134,12 +123,9 @@ class GyroNetWithCNNRNN(BaseNet):
     def __init__(self, in_dim, out_dim, c0, dropout, ks, ds, momentum,
         gyro_std):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
-        gyro_std = torch.Tensor(gyro_std)
-        self.gyro_std = torch.nn.Parameter(gyro_std, requires_grad=False)
-
-        gyro_Rot = 0.05*torch.randn(3, 3).cuda()
-        self.gyro_Rot = torch.nn.Parameter(gyro_Rot)
-        self.Id3 = torch.eye(3).cuda()
+        self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
+        self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.register_buffer('Id3', torch.eye(3))
         
         c1 = 2*c0
         c2 = 2*c1
@@ -193,11 +179,30 @@ class GyroNetWithCNNRNN(BaseNet):
         return (us-self.mean_u)/self.std_u
 
     def set_normalized_factors(self, mean_u, std_u):
-        if isinstance(mean_u, int):
-            mean_u = torch.tensor(mean_u, dtype=torch.float32)
-        if isinstance(std_u, int):
-            std_u = torch.tensor(std_u, dtype=torch.float32)
-        self.mean_u = torch.nn.Parameter(mean_u.cuda(), requires_grad=False)
-        self.std_u = torch.nn.Parameter(std_u.cuda(), requires_grad=False)
+        super().set_normalized_factors(mean_u, std_u)
+
+
+class CalibratedIMUNet(torch.nn.Module):
+    """
+    Baseline "calibrated IMU" model (paper: constant parameters).
+
+    Predicts corrected gyro as:
+        ω_hat = (I + dC) * ω_raw + b
+
+    where dC (3x3) and b (3) are optimized by gradient descent.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.dC = torch.nn.Parameter(torch.zeros(3, 3))
+        self.b = torch.nn.Parameter(torch.zeros(3))
+        self.register_buffer("Id3", torch.eye(3))
+
+    def forward(self, us):
+        # us: [B, T, 6]
+        gyro = us[:, :, :3]
+        C = self.Id3 + self.dC
+        Cb = C.expand(gyro.shape[0], gyro.shape[1], 3, 3)
+        return bbmv(Cb, gyro) + self.b.view(1, 1, 3)
         
         

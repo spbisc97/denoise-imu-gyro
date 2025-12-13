@@ -1,0 +1,16 @@
+name: denoise-imu-gyro-312
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - numpy
+  - matplotlib
+  - pyyaml
+  - scipy
+  - requests
+  - tqdm
+  - tensorboard
+  - termcolor
+  - pip:
+      - torch

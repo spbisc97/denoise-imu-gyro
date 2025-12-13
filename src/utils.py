@@ -4,6 +4,17 @@ import pickle
 import yaml
 
 
+def _yaml_sanitize(obj):
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    if isinstance(obj, dict):
+        return {str(k): _yaml_sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [_yaml_sanitize(v) for v in obj]
+    # Fall back to a readable string for things like classes/functions.
+    return str(obj)
+
+
 def pload(*f_names):
     """Pickle load"""
     f_name = os.path.join(*f_names)
@@ -20,21 +31,20 @@ def pdump(pickle_dict, *f_names):
 def mkdir(*paths):
     '''Create a directory if not existing.'''
     path = os.path.join(*paths)
-    if not os.path.exists(path):
-        os.mkdir(path)
+    os.makedirs(path, exist_ok=True)
 
 def yload(*f_names):
     """YAML load"""
     f_name = os.path.join(*f_names)
     with open(f_name, 'r') as f:
-        yaml_dict = yaml.load(f)
+        yaml_dict = yaml.safe_load(f)
     return yaml_dict
 
 def ydump(yaml_dict, *f_names):
     """YAML dump"""
     f_name = os.path.join(*f_names)
     with open(f_name, 'w') as f:
-        yaml.dump(yaml_dict, f, default_flow_style=False)
+        yaml.safe_dump(_yaml_sanitize(yaml_dict), f, default_flow_style=False)
 
 def bmv(mat, vec):
     """batch matrix vector product"""

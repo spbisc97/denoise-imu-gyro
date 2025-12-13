@@ -17,6 +17,7 @@ from src.utils import pload, pdump, yload, ydump, mkdir, bmv
 from src.utils import bmtm, bmtv, bmmt
 from datetime import datetime
 from src.lie_algebra import SO3, CPUSO3
+import itertools
 
 
 class LearningBasedProcessing:
@@ -29,6 +30,7 @@ class LearningBasedProcessing:
         self.train_params = {}
         self.figsize = (20, 12)
         self.dt = dt # (s)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.address, self.tb_address = self.find_address(address)
         if address is None:  # create new address
             pdump(self.net_params, self.address, 'net_params.p')
@@ -38,14 +40,20 @@ class LearningBasedProcessing:
             self.train_params = pload(self.address, 'train_params.p')
             self._ready = True
         self.path_weights = os.path.join(self.address, 'weights.pt')
-        self.net = self.net_class(**self.net_params)
+        self.net = self.net_class(**self.net_params).to(self.device)
         if self._ready:  # fill network parameters
             self.load_weights()
 
     def find_address(self, address):
         """return path where net and training info are saved"""
+        os.makedirs(self.res_dir, exist_ok=True)
+        os.makedirs(self.tb_dir, exist_ok=True)
         if address == 'last':
             addresses = sorted(os.listdir(self.res_dir))
+            if len(addresses) == 0:
+                raise FileNotFoundError(
+                    f"No runs found in {self.res_dir!r}. Train first or set address=None."
+                )
             tb_address = os.path.join(self.tb_dir, str(len(addresses)))
             address = os.path.join(self.res_dir, addresses[-1])
         elif address is None:
@@ -58,9 +66,9 @@ class LearningBasedProcessing:
         return address, tb_address
 
     def load_weights(self):
-        weights = torch.load(self.path_weights)
+        weights = torch.load(self.path_weights, map_location=self.device)
         self.net.load_state_dict(weights)
-        self.net.cuda()
+        self.net.to(self.device)
 
     def train(self, dataset_class, dataset_params, train_params):
         """train the neural network. GPU is assumed"""
@@ -92,14 +100,13 @@ class LearningBasedProcessing:
         dataloader = DataLoader(dataset_train, **dataloader_params)
         optimizer = Optimizer(self.net.parameters(), **optimizer_params)
         scheduler = Scheduler(optimizer, **scheduler_params)
-        criterion = Loss(**loss_params)
+        criterion = Loss(**loss_params).to(self.device)
 
         # remaining training parameters
         freq_val = train_params['freq_val']
         n_epochs = train_params['n_epochs']
 
         # init net w.r.t dataset
-        self.net = self.net.cuda()
         mean_u, std_u = dataset_train.mean_u, dataset_train.std_u
         self.net.set_normalized_factors(mean_u, std_u)
 
@@ -167,9 +174,9 @@ class LearningBasedProcessing:
         loss_epoch = 0
         optimizer.zero_grad()
         for us, xs in dataloader:
-            us = dataloader.dataset.add_noise(us.cuda())
+            us = dataloader.dataset.add_noise(us.to(self.device))
             hat_xs = self.net(us)
-            loss = criterion(xs.cuda(), hat_xs)/len(dataloader)
+            loss = criterion(xs.to(self.device), hat_xs)/len(dataloader)
             loss.backward()
             loss_epoch += loss.detach().cpu()
         optimizer.step()
@@ -182,8 +189,8 @@ class LearningBasedProcessing:
         with torch.no_grad():
             for i in range(len(dataset)):
                 us, xs = dataset[i]
-                hat_xs = self.net(us.cuda().unsqueeze(0))
-                loss = criterion(xs.cuda().unsqueeze(0), hat_xs)/len(dataset)
+                hat_xs = self.net(us.to(self.device).unsqueeze(0))
+                loss = criterion(xs.to(self.device).unsqueeze(0), hat_xs)/len(dataset)
                 loss_epoch += loss.cpu()
         self.net.train()
         return loss_epoch
@@ -192,7 +199,7 @@ class LearningBasedProcessing:
         """save the weights on the net in CPU"""
         self.net.eval().cpu()
         torch.save(self.net.state_dict(), self.path_weights)
-        self.net.train().cuda()
+        self.net.train().to(self.device)
 
     def get_hparams(self, dataset_class, dataset_params, train_params):
         """return all training hyperparameters in a dict"""
@@ -222,11 +229,13 @@ class LearningBasedProcessing:
 
     def test(self, dataset_class, dataset_params, modes):
         """test a network once training is over"""
+        self.dataset_class = dataset_class
+        self.dataset_params = dataset_params
 
         # get loss function
         Loss = self.train_params['loss_class']
         loss_params = self.train_params['loss']
-        criterion = Loss(**loss_params)
+        criterion = Loss(**loss_params).to(self.device)
 
         # test on each type of sequence
         for mode in modes:
@@ -241,8 +250,8 @@ class LearningBasedProcessing:
             seq = dataset.sequences[i]
             us, xs = dataset[i]
             with torch.no_grad():
-                hat_xs = self.net(us.cuda().unsqueeze(0))
-            loss = criterion(xs.cuda().unsqueeze(0), hat_xs)
+                hat_xs = self.net(us.to(self.device).unsqueeze(0))
+            loss = criterion(xs.to(self.device).unsqueeze(0), hat_xs)
             mkdir(self.address, seq)
             mondict = {
                 'hat_xs': hat_xs[0].cpu(),
@@ -264,19 +273,82 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
             'yaws': [],
             }
         self.gyro_biases = [4.5,1.2,-0.2] # deg/s
+        self.enable_calibrated_imu_baseline = False
+
+    def fit_calibrated_imu(self, dataset_class, dataset_params, train_params, *, n_steps=300, lr=5e-2):
+        """
+        Fit the 'calibrated IMU (prop.)' baseline from the paper by optimizing a
+        static correction:
+            ω_hat = (I + dC) ω + b
+        on training segments using the same GyroLoss.
+        """
+        from src.networks import CalibratedIMUNet
+
+        out_path = os.path.join(self.address, "calibrated_imu.p")
+        out_yaml = os.path.join(self.address, "calibrated_imu.yaml")
+        if os.path.exists(out_path):
+            return pload(out_path)
+
+        # Build random-window training loader (same idea as main training).
+        dataset_train = dataset_class(**dataset_params, mode='train')
+        dataset_train.init_train()
+
+        dataloader_params = dict(train_params.get('dataloader', {}))
+        dataloader_params.setdefault('batch_size', 10)
+        dataloader_params.setdefault('shuffle', True)
+        dataloader_params.setdefault('num_workers', 0)
+        dataloader_params.setdefault('pin_memory', False)
+        dataloader = DataLoader(dataset_train, **dataloader_params)
+
+        Loss = train_params['loss_class']
+        loss_params = train_params['loss']
+        criterion = Loss(**loss_params).to(self.device)
+
+        model = CalibratedIMUNet().to(self.device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+        it = itertools.cycle(dataloader)
+        model.train()
+        for step in range(1, n_steps + 1):
+            us, xs = next(it)
+            us = dataset_train.add_noise(us.to(self.device))
+            xs = xs.to(self.device)
+            hat_xs = model(us)
+            loss = criterion(xs, hat_xs)
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+
+            if step % 50 == 0:
+                print(f"[calib] step={step}/{n_steps} loss={loss.detach().cpu().item():.6f}")
+
+        calib = {
+            "dC": model.dC.detach().cpu(),
+            "b": model.b.detach().cpu(),
+        }
+        pdump(calib, out_path)
+        try:
+            ydump({k: v.tolist() for k, v in calib.items()}, out_yaml)
+        except Exception:
+            pass
+        return calib
 
     def display_test(self, dataset, mode):
         self.roes = {
             'Rots': [],
             'yaws': [],
         }
+        calib = None
+        if getattr(self, "enable_calibrated_imu_baseline", False):
+            calib = self.fit_calibrated_imu(self.dataset_class, self.dataset_params, self.train_params)
+
         self.to_open_vins(dataset)
         for i, seq in enumerate(dataset.sequences):
             print('\n', 'Results for sequence ' + seq )
             self.seq = seq
             # get ground truth
             self.gt = dataset.load_gt(i)
-            Rots = SO3.from_quaternion(self.gt['qs'].cuda())
+            Rots = SO3.from_quaternion(self.gt['qs'].to(self.device))
             self.gt['Rots'] = Rots.cpu()
             self.gt['rpys'] = SO3.to_rpy(Rots).cpu()
             # get data and estimate
@@ -287,7 +359,7 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
             self.ts = torch.linspace(0, N*self.dt, N)
 
             self.convert()
-            self.plot_gyro()
+            self.plot_gyro(calib=calib)
             self.plot_gyro_correction()
             plt.show()
 
@@ -324,12 +396,12 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         self.gt['rpys'] *= l
 
     def integrate_with_quaternions_superfast(self, N, raw_us, net_us, cal_us=None):
-        imu_qs = SO3.qnorm(SO3.qexp(raw_us[:, :3].cuda().double()*self.dt))
-        net_qs = SO3.qnorm(SO3.qexp(net_us[:, :3].cuda().double()*self.dt))
+        imu_qs = SO3.qnorm(SO3.qexp(raw_us[:, :3].to(self.device).double()*self.dt))
+        net_qs = SO3.qnorm(SO3.qexp(net_us[:, :3].to(self.device).double()*self.dt))
         if cal_us is not None:
-            cal_us = SO3.qnorm(SO3.qexp(cal_us[:, :3].cuda().double()*self.dt))
+            cal_us = SO3.qnorm(SO3.qexp(cal_us[:, :3].to(self.device).double()*self.dt))
         
-        Rot0 = SO3.qnorm(self.gt['qs'][:2].cuda().double())
+        Rot0 = SO3.qnorm(self.gt['qs'][:2].to(self.device).double())
         imu_qs[0] = Rot0[0]
         net_qs[0] = Rot0[0]
         if cal_us is not None:
@@ -357,23 +429,27 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         net_Rots = SO3.from_quaternion(net_qs).float()
         return net_qs.cpu(), imu_Rots, net_Rots
 
-    def plot_gyro(self):
+    def plot_gyro(self, calib=None):
         N = self.raw_us.shape[0]
         raw_us = self.raw_us[:, :3]
         net_us = self.net_us[:, :3] 
-        biases= (raw_us - net_us)
-        self.gyro_biases = biases.mean(dim=0).cpu()
-        #add the gyro biases to the raw data in the right order
-        cal_us = raw_us + self.gyro_biases
-        net_qs, imu_Rots, net_Rots, cal_Rots = self.integrate_with_quaternions_superfast(N,
-        raw_us, net_us, cal_us)
+        cal_us = None
+        if calib is not None:
+            dC = calib["dC"].to(raw_us.device)
+            b = calib["b"].to(raw_us.device)
+            C = torch.eye(3, device=raw_us.device, dtype=raw_us.dtype) + dC.to(raw_us.dtype)
+            cal_us = (raw_us @ C.T) + b.view(1, 3)
+
+        if cal_us is not None:
+            _, imu_Rots, net_Rots, cal_Rots = self.integrate_with_quaternions_superfast(N, raw_us, net_us, cal_us)
+        else:
+            _, imu_Rots, net_Rots = self.integrate_with_quaternions_superfast(N, raw_us, net_us)
+
         imu_rpys = 180/np.pi*SO3.to_rpy(imu_Rots).cpu()
         net_rpys = 180/np.pi*SO3.to_rpy(net_Rots).cpu()
-        cal_rpys = 180/np.pi*SO3.to_rpy(cal_Rots).cpu()
-        cal_rpys = None
-        cal_Rots = None
-        self.plot_orientation(imu_rpys, net_rpys, N,cal_rpys=cal_rpys)
-        self.plot_orientation_error(imu_Rots, net_Rots, N,cal_Rots=cal_Rots)
+        cal_rpys = 180/np.pi*SO3.to_rpy(cal_Rots).cpu() if cal_us is not None else None
+        self.plot_orientation(imu_rpys, net_rpys, N, cal_rpys=cal_rpys)
+        self.plot_orientation_error(imu_Rots, net_Rots, N, cal_Rots=cal_Rots if cal_us is not None else None)
 
     def plot_orientation(self, imu_rpys, net_rpys, N, cal_rpys=None):
         title = "Orientation estimation"
@@ -393,7 +469,7 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         self.savefig(axs, fig, 'orientation')
 
     def plot_orientation_error(self, imu_Rots, net_Rots, N,cal_Rots=None):
-        gt = self.gt['Rots'][:N].cuda()
+        gt = self.gt['Rots'][:N].to(self.device)
         raw_err = 180/np.pi*SO3.log(bmtm(imu_Rots, gt)).cpu()
         net_err = 180/np.pi*SO3.log(bmtm(net_Rots, gt)).cpu()
         if cal_Rots is not None:
@@ -437,4 +513,3 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
             axs.legend()
         fig.tight_layout()
         fig.savefig(os.path.join(self.address, self.seq, name + '.png'))
-

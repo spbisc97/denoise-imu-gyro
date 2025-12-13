@@ -5,15 +5,21 @@ import numpy as np
 class SO3:
     #  tolerance criterion
     TOL = 1e-8
-    Id = torch.eye(3).cuda().float()
-    dId = torch.eye(3).cuda().double()
+
+    @staticmethod
+    def _Id(dtype, device):
+        return torch.eye(3, dtype=dtype, device=device)
+
+    @classmethod
+    def _bId(cls, dim_batch, dtype, device):
+        return cls._Id(dtype=dtype, device=device).expand(dim_batch, 3, 3)
 
     @classmethod
     def exp(cls, phi):
         angle = phi.norm(dim=1, keepdim=True)
         mask = angle[:, 0] < cls.TOL
         dim_batch = phi.shape[0]
-        Id = cls.Id.expand(dim_batch, 3, 3)
+        Id = cls._bId(dim_batch, dtype=phi.dtype, device=phi.device)
 
         axis = phi[~mask] / angle[~mask]
         c = angle[~mask].cos().unsqueeze(2)
@@ -28,7 +34,7 @@ class SO3:
     @classmethod
     def log(cls, Rot):
         dim_batch = Rot.shape[0]
-        Id = cls.Id.expand(dim_batch, 3, 3)
+        Id = cls._bId(dim_batch, dtype=Rot.dtype, device=Rot.device)
 
         cos_angle = (0.5 * cls.btrace(Rot) - 0.5).clamp(-1., 1.)
         # Clip cos(angle) to its proper domain to avoid NaNs from rounding
@@ -146,12 +152,12 @@ class SO3:
         """Form a rotation matrix from a unit length quaternion.
         Valid orderings are 'xyzw' and 'wxyz'.
         """
-        if ordering is 'xyzw':
+        if ordering == 'xyzw':
             qx = quat[:, 0]
             qy = quat[:, 1]
             qz = quat[:, 2]
             qw = quat[:, 3]
-        elif ordering is 'wxyz':
+        elif ordering == 'wxyz':
             qw = quat[:, 0]
             qx = quat[:, 1]
             qy = quat[:, 2]
@@ -243,23 +249,23 @@ class SO3:
             qz[far_zero_inds] = (R_fz[:, 1, 0] - R_fz[:, 0, 1]) / d
 
         # Check ordering last
-        if ordering is 'xyzw':
+        if ordering == 'xyzw':
             quat = torch.stack([qx, qy, qz, qw], dim=1)
-        elif ordering is 'wxyz':
+        elif ordering == 'wxyz':
             quat = torch.stack([qw, qx, qy, qz], dim=1)
         return quat
 
     @classmethod
     def normalize(cls, Rots):
         U, _, V = torch.svd(Rots)
-        S = cls.Id.clone().repeat(Rots.shape[0], 1, 1)
+        S = cls._Id(dtype=Rots.dtype, device=Rots.device).repeat(Rots.shape[0], 1, 1)
         S[:, 2, 2] = torch.det(U) * torch.det(V)
         return U.bmm(S).bmm(V.transpose(1, 2))
 
     @classmethod
     def dnormalize(cls, Rots):
         U, _, V = torch.svd(Rots)
-        S = cls.dId.clone().repeat(Rots.shape[0], 1, 1)
+        S = cls._Id(dtype=Rots.dtype, device=Rots.device).repeat(Rots.shape[0], 1, 1)
         S[:, 2, 2] = torch.det(U) * torch.det(V)
         return U.bmm(S).bmm(V.transpose(1, 2))
 

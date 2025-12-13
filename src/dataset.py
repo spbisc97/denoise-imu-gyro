@@ -17,6 +17,7 @@ class BaseDataset(Dataset):
         super().__init__()
         # where record pre loaded data
         self.predata_dir = predata_dir
+        os.makedirs(self.predata_dir, exist_ok=True)
         self.path_normalize_factors = os.path.join(predata_dir, 'nf.p')
 
         self.mode = mode
@@ -76,7 +77,7 @@ class BaseDataset(Dataset):
         noise[:, :, 3:6] = noise[:, :, 3:6] * self.imu_std[1]
 
         # bias repeatability (without in run bias stability)
-        b0 = self.uni.sample(u[:, 0].shape).cuda()
+        b0 = self.uni.sample(u[:, 0].shape).to(u.device)
         b0[:, :, :3] = b0[:, :, :3] * self.imu_b0[0]
         b0[:, :, 3:6] =  b0[:, :, 3:6] * self.imu_b0[1]
         u = u + noise + b0.transpose(1, 2)
@@ -234,7 +235,7 @@ class EUROCDataset(BaseDataset):
             # take ground true quaternion pose
             q_gt = torch.Tensor(gt[:, 4:8]).double()
             q_gt = q_gt / q_gt.norm(dim=1, keepdim=True)
-            Rot_gt = SO3.from_quaternion(q_gt.cuda(), ordering='wxyz').cpu()
+            Rot_gt = SO3.from_quaternion(q_gt, ordering='wxyz')
 
             # convert from numpy
             p_gt = torch.Tensor(p_gt).double()
@@ -244,7 +245,7 @@ class EUROCDataset(BaseDataset):
             # compute pre-integration factors for all training
             mtf = self.min_train_freq
             dRot_ij = bmtm(Rot_gt[:-mtf], Rot_gt[mtf:])
-            dRot_ij = SO3.dnormalize(dRot_ij.cuda())
+            dRot_ij = SO3.dnormalize(dRot_ij)
             dxi_ij = SO3.log(dRot_ij).cpu()
 
             # save for all training
@@ -331,7 +332,7 @@ class TUMVIDataset(BaseDataset):
 
             # take ground true quaternion pose
             q_gt = SO3.qnorm(torch.Tensor(gt[:, 4:8]).double())
-            Rot_gt = SO3.from_quaternion(q_gt.cuda(), ordering='wxyz').cpu()
+            Rot_gt = SO3.from_quaternion(q_gt, ordering='wxyz')
 
             # convert from numpy
             p_gt = torch.Tensor(p_gt).double()
@@ -342,7 +343,7 @@ class TUMVIDataset(BaseDataset):
             # compute pre-integration factors for all training
             mtf = self.min_train_freq
             dRot_ij = bmtm(Rot_gt[:-mtf], Rot_gt[mtf:])
-            dRot_ij = SO3.dnormalize(dRot_ij.cuda())
+            dRot_ij = SO3.dnormalize(dRot_ij)
             dxi_ij = SO3.log(dRot_ij).cpu()
 
             # masks with 1 when ground truth is available, 0 otherwise
@@ -430,7 +431,7 @@ class KITTiDataset(BaseDataset):
 
             # Take ground truth quaternion pose
             q_gt = SO3.qnorm(torch.Tensor(gt[:, 4:8]).double())
-            Rot_gt = SO3.from_quaternion(q_gt.cuda(), ordering='wxyz').cpu()
+            Rot_gt = SO3.from_quaternion(q_gt, ordering='wxyz')
 
             # Convert from numpy
             p_gt = torch.Tensor(p_gt).double()
@@ -441,7 +442,7 @@ class KITTiDataset(BaseDataset):
             # Compute pre-integration factors for all training
             mtf = self.min_train_freq
             dRot_ij = bmtm(Rot_gt[:-mtf], Rot_gt[mtf:])
-            dRot_ij = SO3.dnormalize(dRot_ij.cuda())
+            dRot_ij = SO3.dnormalize(dRot_ij)
             dxi_ij = SO3.log(dRot_ij).cpu()
 
             # Masks with 1 when ground truth is available, 0 otherwise
