@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from typing import Any, MutableMapping
 
+import torch
+
 
 def add_common_entrypoint_args(
     parser: argparse.ArgumentParser,
@@ -33,6 +35,38 @@ def add_common_entrypoint_args(
     parser.add_argument("--freq-val", type=int, default=int(train_params["freq_val"]))
     parser.add_argument("--batch-size", type=int, default=int(train_params["dataloader"]["batch_size"]))
     parser.add_argument("--N", type=int, default=int(dataset_params["N"]), help="Training window length (samples)")
+
+    scheduler_defaults = dict(train_params.get("scheduler", {}))
+    parser.add_argument(
+        "--scheduler",
+        choices=["cosine", "warm_restarts"],
+        default="cosine",
+        help="LR scheduler to use (default: cosine).",
+    )
+    parser.add_argument(
+        "--eta-min",
+        type=float,
+        default=float(scheduler_defaults.get("eta_min", 1e-3)),
+        help="Scheduler minimum LR (eta_min).",
+    )
+    parser.add_argument(
+        "--t-max",
+        type=int,
+        default=None,
+        help="CosineAnnealingLR: T_max (defaults to --epochs).",
+    )
+    parser.add_argument(
+        "--t0",
+        type=int,
+        default=int(scheduler_defaults.get("T_0", 600)),
+        help="CosineAnnealingWarmRestarts: T_0 (initial period).",
+    )
+    parser.add_argument(
+        "--t-mult",
+        type=int,
+        default=int(scheduler_defaults.get("T_mult", 2)),
+        help="CosineAnnealingWarmRestarts: T_mult (period multiplier).",
+    )
 
     parser.add_argument(
         "--train-seqs",
@@ -84,6 +118,22 @@ def apply_common_entrypoint_overrides(
     train_params["freq_val"] = int(args.freq_val)
     train_params["dataloader"]["batch_size"] = int(args.batch_size)
 
+    eta_min = float(args.eta_min)
+    if args.scheduler == "cosine":
+        train_params["scheduler_class"] = torch.optim.lr_scheduler.CosineAnnealingLR
+        t_max = int(args.t_max) if args.t_max is not None else int(train_params["n_epochs"])
+        train_params["scheduler"] = {
+            "T_max": t_max,
+            "eta_min": eta_min,
+        }
+    else:
+        train_params["scheduler_class"] = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
+        train_params["scheduler"] = {
+            "T_0": int(args.t0),
+            "T_mult": int(args.t_mult),
+            "eta_min": eta_min,
+        }
+
 
 def apply_calib_args_for_train(process: Any, args: argparse.Namespace) -> None:
     process.init_from_calib_baseline = bool(args.calib_init)
@@ -97,4 +147,3 @@ def apply_calib_args_for_test(process: Any, args: argparse.Namespace) -> None:
     process.calib_baseline_steps = int(args.calib_steps)
     process.calib_baseline_lr = float(args.calib_lr)
     process.show_plots = not bool(args.no_show)
-

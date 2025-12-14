@@ -56,6 +56,8 @@ All main entrypoints support:
 
 `main_EUROC.py` and `main_TUMVI.py` also support:
 - `--epochs`, `--freq-val`, `--batch-size`, `--N`
+- `--scheduler {cosine,warm_restarts}` (default: `cosine`)
+- `--eta-min`, `--t-max` (cosine), `--t0`, `--t-mult` (warm restarts)
 - `--train-seqs`, `--val-seqs`, `--test-seqs` (comma-separated)
 - `--calib-baseline/--no-calib-baseline`, `--calib-steps`, `--calib-lr`
 - `--calib-init/--no-calib-init`, `--calib-freeze/--no-calib-freeze`
@@ -108,3 +110,4 @@ Recent agent work (Dec 2025):
 - Added EuRoC/TUM-VI “calibrated IMU” GD baseline support (static correction) for comparison plots.
 - Refactored EuRoC/TUM-VI entrypoints to share CLI parsing via `src/entrypoint_utils.py`.
 - Fixed masked rotation-matrix loss handling and validation checkpoint selection.
+- Made LR scheduler selectable via CLI (default `CosineAnnealingLR`) and fixed double scheduler stepping.

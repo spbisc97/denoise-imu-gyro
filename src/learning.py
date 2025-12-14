@@ -131,7 +131,6 @@ class LearningBasedProcessing:
             writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch)
             print('Train Epoch: {:2d} \tLoss: {:.4f}'.format(
                 epoch, loss_epoch.item()))
-            scheduler.step(epoch)
 
         def write_time(epoch, start_time):
             delta_t = time.time() - start_time
@@ -162,7 +161,7 @@ class LearningBasedProcessing:
         for epoch in range(1, n_epochs + 1):
             loss_epoch = self.loop_train(dataloader, optimizer, criterion)
             write(epoch, loss_epoch)
-            scheduler.step(epoch)
+            scheduler.step()
             if epoch % freq_val == 0:
                 loss = self.loop_val(dataset_val, criterion)
                 write_time(epoch, start_time)

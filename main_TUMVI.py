@@ -78,10 +78,9 @@ train_params = {
         'huber': 0.005,
         'dt': 0.005,
     },
-    'scheduler_class': torch.optim.lr_scheduler.CosineAnnealingWarmRestarts,
+    'scheduler_class': torch.optim.lr_scheduler.CosineAnnealingLR,
     'scheduler': {
-        'T_0': 600,
-        'T_mult': 2,
+        'T_max': 1800,
         'eta_min': 1e-3,
     },
     'dataloader': {
