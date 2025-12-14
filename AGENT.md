@@ -29,6 +29,7 @@ Notable additions on `calibration`:
 ## Repo Layout
 
 - `main_EUROC.py`, `main_TUMVI.py`, `main_KITTI.py`: dataset entrypoints (train/test/smoke).
+- `src/entrypoint_utils.py`: shared CLI parsing/helpers for entrypoints.
 - `src/dataset.py`: dataset parsing + preprocessing into pickles; provides PyTorch `Dataset`.
 - `src/networks.py`: CNN-based `GyroNet` + experimental variants.
 - `src/losses.py`: `GyroLoss` using multi-rate SO(3) increment errors.
@@ -52,6 +53,13 @@ All main entrypoints support:
 - `--mode {auto,train,test,smoke}`
 - `--data-dir <path>` (raw dataset root)
 - `--address <'last' | path>` (which run/weights to test)
+
+`main_EUROC.py` and `main_TUMVI.py` also support:
+- `--epochs`, `--freq-val`, `--batch-size`, `--N`
+- `--train-seqs`, `--val-seqs`, `--test-seqs` (comma-separated)
+- `--calib-baseline/--no-calib-baseline`, `--calib-steps`, `--calib-lr`
+- `--calib-init/--no-calib-init`, `--calib-freeze/--no-calib-freeze`
+- `--no-show`
 
 Examples (no dataset required):
 - `conda run -n denoise-imu-gyro-312 python main_EUROC.py --mode smoke`
@@ -98,3 +106,5 @@ Recent agent work (Dec 2025):
 - Added `environment.yml` (`denoise-imu-gyro-312`).
 - Added `datasets_downloader.py` flags (`--sources`, retries/timeouts, optional `--insecure`).
 - Added EuRoC/TUM-VI “calibrated IMU” GD baseline support (static correction) for comparison plots.
+- Refactored EuRoC/TUM-VI entrypoints to share CLI parsing via `src/entrypoint_utils.py`.
+- Fixed masked rotation-matrix loss handling and validation checkpoint selection.

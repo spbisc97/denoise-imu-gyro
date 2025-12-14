@@ -101,7 +101,8 @@ class GyroLoss(BaseLoss):
         for k in range(self.min_N):
             Omegas = Omegas[::2].bmm(Omegas[1::2])
         rs = SO3.log(bmtm(Omegas, Xs)).reshape(N, -1, 3)[:, self.N0:]
-        loss = self.f_huber(rs)
+        rs = rs[masks[:, self.N0:].squeeze(2) == 1]
+        loss = self.f_huber(rs) if rs.numel() > 0 else rs.new_zeros(())
         # compute increment from min_train_freq to max_train_freq
         for k in range(self.min_N, self.max_N):
             Omegas = Omegas[::2].bmm(Omegas[1::2])
@@ -109,7 +110,8 @@ class GyroLoss(BaseLoss):
             masks = masks[:, ::2] * masks[:, 1::2]
             rs = SO3.log(bmtm(Omegas, Xs)).reshape(N, -1, 3)[:, self.N0:]
             rs = rs[masks[:, self.N0:].squeeze(2) == 1]
-            loss = loss + self.f_huber(rs[:,2])/(2**(k - self.min_N + 1))
+            if rs.numel() > 0:
+                loss = loss + self.f_huber(rs)/(2**(k - self.min_N + 1))
         return loss
 
     def forward_with_quaternion_mask(self, xs, hat_xs):

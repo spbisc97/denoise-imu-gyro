@@ -143,7 +143,7 @@ class LearningBasedProcessing:
             if not torch.isfinite(loss):
                 msg = 'validation loss is not finite (NaN/Inf)'
                 cprint(msg, 'yellow')
-            elif 0.5*loss <= best_loss:
+            elif loss <= best_loss:
                 msg = 'validation loss decreases! :) '
                 msg += '(curr/prev loss {:.4f}/{:.4f})'.format(loss.item(),
                     best_loss.item())

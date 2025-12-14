@@ -3,6 +3,7 @@ import argparse
 import sys
 import torch
 import src.learning as lr
+import src.entrypoint_utils as ep
 import src.networks as sn
 import src.losses as sl
 import src.dataset as ds
@@ -121,39 +122,19 @@ def main():
     global data_dir, address
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', choices=['auto', 'train', 'test', 'smoke'], default='auto')
-    parser.add_argument('--data-dir', default=data_dir)
-    parser.add_argument('--address', default=address, help="Weights/run to test: 'last' or a path")
-    parser.add_argument(
-        '--calib-baseline',
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Include 'calibrated IMU' (static GD) baseline on test runs.",
-    )
-    parser.add_argument(
-        '--no-show',
-        action='store_true',
-        help="Do not call matplotlib's plt.show() (useful for non-interactive runs).",
-    )
-    parser.add_argument('--calib-steps', type=int, default=300, help="Steps for calibrated-IMU GD baseline")
-    parser.add_argument('--calib-lr', type=float, default=5e-2, help="LR for calibrated-IMU GD baseline")
-    parser.add_argument(
-        '--calib-init',
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Before training, fit the calibrated-IMU baseline and use it to initialize the model calibration params.",
-    )
-    parser.add_argument(
-        '--calib-freeze',
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Freeze calibration params (gyro_Rot/bias) after calib-init during training.",
+    ep.add_common_entrypoint_args(
+        parser,
+        dataset_params=dataset_params,
+        train_params=train_params,
+        default_data_dir=data_dir,
+        default_address=address,
+        dataset_label="TUM-VI",
     )
     args = parser.parse_args()
 
     data_dir = args.data_dir
-    dataset_params['data_dir'] = data_dir
     address = args.address
+    ep.apply_common_entrypoint_overrides(args, dataset_params=dataset_params, train_params=train_params)
 
     if args.mode == 'smoke':
         _smoke_test()
@@ -179,10 +160,7 @@ def main():
             address=None,
             dt=train_params['loss']['dt'],
         )
-        learning_process.init_from_calib_baseline = bool(args.calib_init)
-        learning_process.freeze_calib_params = bool(args.calib_freeze)
-        learning_process.calib_baseline_steps = int(args.calib_steps)
-        learning_process.calib_baseline_lr = float(args.calib_lr)
+        ep.apply_calib_args_for_train(learning_process, args)
         learning_process.train(dataset_class, dataset_params, train_params)
         return 0
 
@@ -194,10 +172,7 @@ def main():
         address=address,
         dt=train_params['loss']['dt'],
     )
-    learning_process.enable_calibrated_imu_baseline = bool(args.calib_baseline)
-    learning_process.calib_baseline_steps = int(args.calib_steps)
-    learning_process.calib_baseline_lr = float(args.calib_lr)
-    learning_process.show_plots = not args.no_show
+    ep.apply_calib_args_for_test(learning_process, args)
     learning_process.test(dataset_class, dataset_params, ['test'])
     return 0
 
