@@ -60,7 +60,10 @@ Examples (no dataset required):
 With datasets present:
 - `conda run -n denoise-imu-gyro-312 python main_EUROC.py --data-dir ./data/EUROC/dataset --mode train`
 - `conda run -n denoise-imu-gyro-312 python main_EUROC.py --data-dir ./data/EUROC/dataset --mode test --address last`
-- `conda run -n denoise-imu-gyro-312 python main_EUROC.py --mode test --calib-baseline` (adds the calibrated-IMU baseline to plots)
+- `conda run -n denoise-imu-gyro-312 python main_EUROC.py --mode test --no-calib-baseline` (disables the calibrated-IMU baseline)
+- `conda run -n denoise-imu-gyro-312 python main_TUMVI.py --data-dir ./data/TUMVI/dataset --mode train`
+- `conda run -n denoise-imu-gyro-312 python main_TUMVI.py --data-dir ./data/TUMVI/dataset --mode test --address last`
+- `conda run -n denoise-imu-gyro-312 python main_TUMVI.py --mode test --no-calib-baseline` (disables the calibrated-IMU baseline)
 
 Downloading datasets (network required):
 - `conda run -n denoise-imu-gyro-312 python datasets_downloader.py --sources TUMVI`
@@ -79,8 +82,8 @@ Downloading datasets (network required):
 - YAML dumping: training config contains class objects; `src/utils.py` sanitizes these to strings for YAML output.
 - Paths: `src/dataset.py` creates `predata_dir` automatically; `src/learning.py` creates `res_dir` and `tb_dir`.
 - Loss stability: `GyroLoss` can produce NaNs on arbitrary random inputs; smoke tests use small-magnitude synthetic inputs.
-- Calibrated-IMU baseline: implemented as a static correction `(I + dC)ω + b` optimized by gradient descent (paper “calibrated IMU” comparison); enabled via `main_EUROC.py --calib-baseline`.
-- Two-stage training option: you can fit the calibrated-IMU baseline first and use it to initialize the model calibration params via `main_EUROC.py --calib-init` (optionally `--calib-freeze`).
+- Calibrated-IMU baseline: implemented as a static correction `(I + dC)ω + b` optimized by gradient descent (paper “calibrated IMU” comparison); enabled by default in `main_EUROC.py` and `main_TUMVI.py` (use `--no-calib-baseline` to disable).
+- Two-stage training option: you can fit the calibrated-IMU baseline first and use it to initialize the model calibration params via `main_EUROC.py --calib-init` or `main_TUMVI.py --calib-init` (optionally `--calib-freeze`).
 
 ## Docs
 
@@ -94,4 +97,4 @@ Recent agent work (Dec 2025):
 - CLI-style `--mode/--data-dir/--address` support in all `main_*.py`.
 - Added `environment.yml` (`denoise-imu-gyro-312`).
 - Added `datasets_downloader.py` flags (`--sources`, retries/timeouts, optional `--insecure`).
-- Added EuRoC “calibrated IMU” GD baseline support (static correction) for comparison plots.
+- Added EuRoC/TUM-VI “calibrated IMU” GD baseline support (static correction) for comparison plots.
