@@ -112,6 +112,18 @@ class LearningBasedProcessing:
         scheduler = Scheduler(optimizer, **scheduler_params)
         criterion = Loss(**loss_params).to(self.device)
 
+        try:
+            scheduler_name = getattr(Scheduler, "__name__", str(Scheduler))
+        except Exception:
+            scheduler_name = str(Scheduler)
+        try:
+            init_lrs = [pg.get("lr", None) for pg in optimizer.param_groups]
+        except Exception:
+            init_lrs = []
+        print(f"[INFO] Scheduler: {scheduler_name} params={scheduler_params}")
+        if init_lrs:
+            print(f"[INFO] Initial LR(s): {init_lrs}")
+
         # remaining training parameters
         freq_val = train_params['freq_val']
         n_epochs = train_params['n_epochs']
@@ -127,10 +139,11 @@ class LearningBasedProcessing:
 
         # define some function for seeing evolution of training
         def write(epoch, loss_epoch):
+            lr_groups = [pg["lr"] for pg in optimizer.param_groups]
             writer.add_scalar('loss/train', loss_epoch.item(), epoch)
-            writer.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch)
-            print('Train Epoch: {:2d} \tLoss: {:.4f}'.format(
-                epoch, loss_epoch.item()))
+            writer.add_scalar('lr', lr_groups[0], epoch)
+            print('Train Epoch: {:2d} \tLoss: {:.4f} \tLR: {}'.format(
+                epoch, loss_epoch.item(), lr_groups))
 
         def write_time(epoch, start_time):
             delta_t = time.time() - start_time
