@@ -1,7 +1,7 @@
 {
   "name": "Denoise IMU Gyro Dev Container",
-  "image": "pytorch/pytorch:rocm5.6-ubuntu20.04-py3.9",
-  "runArgs": ["--device=/dev/kfd", "--device=/dev/dri", "--group-add=video"],
+  "image": "rocm/pytorch:rocm7.1.1_ubuntu24.04_py3.12_pytorch_release_2.9.1",
+  "runArgs": ["--cap-add=SYS_PTRACE","--security-opt" ,"seccomp=unconfined","--device=/dev/kfd", "--device=/dev/dri", "--group-add=video","--ipc=host","--shm-size=8G"],
   "postCreateCommand": "pip install --no-cache-dir numpy matplotlib pyyaml scipy requests tqdm tensorboard termcolor",
   "customizations": {
     "vscode": {
@@ -15,3 +15,4 @@
   "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/${localWorkspaceFolderBasename},type=bind,consistency=cached"
 }
+//docker run -it   --cap-add=SYS_PTRACE   --security-opt seccomp=unconfined   --device=/dev/kfd   --device=/dev/dri   --group-add video   --ipc=host   --shm-size 8G   rocm/pytorch:rocm7.1.1_ubuntu24.04_py3.12_pytorch_release_2.9.1

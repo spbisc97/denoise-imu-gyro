@@ -122,7 +122,7 @@ def _smoke_test():
     if x_dim == 4:
         xs[:, :, 3] = 1.0
     loss = criterion(xs, hat_xs)
-    print('smoke_ok', hat_xs.shape, float(loss.detach().cpu()))
+    print('smoke_ok', hat_xs.shape, float(loss.detach().cpu()), "device:", device)
 
 
 def main():

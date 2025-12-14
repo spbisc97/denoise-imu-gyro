@@ -13,5 +13,8 @@
         "statusBarItem.remoteBackground": "#13761c",
         "statusBarItem.remoteForeground": "#e7e7e7"
     },
-    "peacock.color": "#13761c"
+    "peacock.color": "#13761c",
+    "python-envs.defaultEnvManager": "ms-python.python:conda",
+    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "python-envs.pythonProjects": []
 }
