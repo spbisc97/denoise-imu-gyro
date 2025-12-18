@@ -41,18 +41,23 @@ dataset_params = {
     # set train, val and test sequence
     'train_seqs': [
         'dataset-room1_512_16',
-        'dataset-room3_512_16',
+        'dataset-room2_512_16',
         'dataset-room5_512_16',
+        'dataset-room6_512_16',
         ],
     'val_seqs': [
         'dataset-room2_512_16',
+        'dataset-room3_512_16',
         'dataset-room4_512_16',
-        'dataset-room6_512_16',
         ],
     'test_seqs': [
+        'dataset-room1_512_16',
         'dataset-room2_512_16',
+        'dataset-room3_512_16',
         'dataset-room4_512_16',
-        'dataset-room6_512_16'
+        'dataset-room5_512_16',
+        'dataset-room6_512_16',
+
         ],
     # size of trajectory during training
     'N': 32 * 500, # should be integer * 'max_train_freq'
@@ -80,11 +85,11 @@ train_params = {
     },
     'scheduler_class': torch.optim.lr_scheduler.CosineAnnealingLR,
     'scheduler': {
-        'T_max': 1800,
+        'T_max': 2400,
         'eta_min': 1e-3,
     },
     'dataloader': {
-        'batch_size': 10,
+        'batch_size': 16,
         'pin_memory': False,
         'num_workers': 0,
         'shuffle': False,
@@ -92,7 +97,7 @@ train_params = {
     # frequency of validation step
     'freq_val': 600,
     # total number of epochs
-    'n_epochs': 1800,
+    'n_epochs': 2400,
     # where record results ?
     'res_dir': os.path.join(base_dir, "results/TUMVI"),
     # where record Tensorboard log ?
