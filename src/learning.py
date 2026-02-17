@@ -181,10 +181,11 @@ class LearningBasedProcessing:
                 best_loss = write_val(loss, best_loss)
                 start_time = time.time()
         # training is over !
-
         if not os.path.exists(self.path_weights):
             # Ensure there is at least one set of weights to load for testing.
             self.save_net()
+
+        return best_loss
 
         # test on new data
         dataset_test = dataset_class(**dataset_params, mode='test')
@@ -297,6 +298,7 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         super().__init__(res_dir, tb_dir, net_class, net_params, address, dt)
         self.roe_dist = [7, 14, 21, 28, 35] # m
         self.freq = 100 # subsampling frequency for RTE computation
+        self.calib_path = None
         self.roes = { # relative trajectory errors
             'Rots': [],
             'yaws': [],
@@ -323,7 +325,11 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
                 self.net.gyro_bias.requires_grad_(False)
 
     def train(self, dataset_class, dataset_params, train_params):
-        if self.init_from_calib_baseline:
+        if self.calib_path is not None:
+             print(f"Loading calibration from {self.calib_path}")
+             calib = pload(self.calib_path)
+             self.apply_calib_to_net(calib)
+        elif self.init_from_calib_baseline:
             calib = self.fit_calibrated_imu(
                 dataset_class,
                 dataset_params,
