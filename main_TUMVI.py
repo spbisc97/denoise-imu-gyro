@@ -8,6 +8,7 @@ import src.networks as sn
 import src.losses as sl
 import src.dataset as ds
 import numpy as np
+import yaml
 
 base_dir = os.path.dirname(os.path.realpath(__file__))
 data_dir = './data/TUMVI/dataset'
@@ -129,10 +130,30 @@ def main():
         default_address=address,
         dataset_label="TUM-VI",
     )
+    parser.add_argument('--hyperparams', type=str, default=None, help='Path to hyperparameters YAML file')
     args = parser.parse_args()
 
     data_dir = args.data_dir
     address = args.address
+
+    if args.hyperparams:
+        print(f"Loading hyperparameters from {args.hyperparams}")
+        with open(args.hyperparams, 'r') as f:
+            hyperparams = yaml.safe_load(f)
+        
+        # Override network parameters
+        if 'dropout' in hyperparams:
+            net_params['dropout'] = hyperparams['dropout']
+        if 'momentum' in hyperparams:
+            net_params['momentum'] = hyperparams['momentum']
+            
+        # Override training parameters
+        if 'lr' in hyperparams:
+            train_params['optimizer']['lr'] = hyperparams['lr']
+        if 'weight_decay' in hyperparams:
+            train_params['optimizer']['weight_decay'] = hyperparams['weight_decay']
+            
+        print(f"Loaded params: {hyperparams}")
     ep.apply_common_entrypoint_overrides(args, dataset_params=dataset_params, train_params=train_params)
 
     if args.mode == 'smoke':

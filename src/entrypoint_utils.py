@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from typing import Any, MutableMapping
 
 import torch
@@ -99,6 +100,17 @@ def add_common_entrypoint_args(
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Freeze calibration params (gyro_Rot/bias) after calib-init during training.",
+    )
+    dataset_name = "TUMVI" if "TUM" in dataset_label else "EUROC"
+    default_calib_path = os.path.join("baselines", dataset_name, "calibrated_imu.p")
+    if not os.path.exists(default_calib_path):
+        default_calib_path = None
+
+    parser.add_argument(
+        "--load-calib",
+        type=str,
+        default=default_calib_path,
+        help="Path to a calibrated IMU .p file (e.g. baselines/TUMVI/calibrated_imu.p) to load instead of fitting.",
     )
 
 
