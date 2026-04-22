@@ -1,114 +1,206 @@
-# denoise-imu-gyro (Localyte fork) — Agent Notes
+# denoise-imu-gyro (Localyte fork) — Repo Memory
 
-This file is meant to help future coding agents quickly understand and work on this repository.
-Keep this file updated when you change behavior, entrypoints, or workflows.
+This file is the canonical local memory for this repository.
+Update it when behavior, entrypoints, workflows, scope, or known issues change.
 
-## What This Repo Does
+The user has also enabled an AI memory MCP for future use. For now:
+- `AGENT.md` is the source of truth for repo-local operational context.
+- The memory MCP is reserved for future cross-repo or longer-lived structured memory.
 
-Deep-learning-based denoising of IMU gyroscope signals for open-loop attitude estimation.
+## Scope
+
+This repository is still one project:
+- learned IMU gyroscope denoising / calibration
+- open-loop attitude estimation
+- EuRoC / TUM-VI as the main validated datasets
+
+Current repo decision:
+- Do not split into a new repository yet.
+- Keep this repo focused on the 2020 paper lineage plus closely related calibration / denoising extensions.
+- Create a new repo only if the work expands into a broader inertial odometry platform, multi-sensor fusion framework, or general benchmark suite.
+
+## Current State
+
+As last checked on 2026-04-22:
+- current branch: `presentation/little-cheat`
+- repo has local user changes outside this file (`.gitignore`, untracked `.codex/`, untracked `.gemini/`)
+- repo is substantially ahead of `origin/master`; treat this fork as its own evolving code line, not a thin patch set
+
+## Project Purpose
 
 High-level pipeline:
 1. Read raw dataset logs (IMU + ground truth).
-2. Build preprocessed “predata” pickles containing:
-   - `us`: IMU measurements (gyro+acc, shape `[T, 6]`)
-   - `xs`: target SO(3) orientation increment logs (and optional mask)
-3. Train a network to predict corrected gyro measurements.
-4. Integrate predicted gyro to estimate attitude; export/plot results.
+2. Build preprocessed pickle files containing:
+   - `us`: IMU measurements (`[T, 6]`, gyro + accel)
+   - `xs`: target SO(3) orientation increment logs, optionally with a mask
+3. Train a model to predict corrected gyro measurements.
+4. Integrate corrected gyro to estimate attitude.
+5. Export plots and OpenVINS-compatible results.
 
-## Important Branches
+## Research Positioning
 
-This working tree is currently on the `calibration` branch (tracking `origin/calibration`), which is the most-modified branch vs `master`.
+This repo implements and extends:
+- M. Brossard, S. Bonnabel, A. Barrau, "Denoising IMU Gyroscopes With Deep Learning for Open-Loop Attitude Estimation," RA-L 2020
 
-Notable additions on `calibration`:
-- `datasets_downloader.py`: download/extract EuRoC / TUM-VI / KITTI (requires network access).
-- Extra entrypoints: `main_KITTI.py`, `main_with_rnn.py`, `main_with_trn.py`, `main_without_acc.py`.
-- Extra model variants in `src/networks.py`.
-- `KITTiDataset` in `src/dataset.py`.
-- Additional dependencies: `tensorboard`, `tqdm`, `requests`, `scipy`.
+Field context from later literature:
+- The 2024 survey "Deep Learning for Inertial Positioning" places this work in the sensor-level calibration / denoising branch.
+- This is narrower than full learned inertial odometry methods such as AI-IMU Dead-Reckoning, TLIO, and newer hybrid inertial/VIO systems.
+- Keep repo goals narrow unless the user explicitly decides to broaden scope.
 
-## Repo Layout
+## Canonical Code Paths
 
-- `main_EUROC.py`, `main_TUMVI.py`, `main_KITTI.py`: dataset entrypoints (train/test/smoke).
-- `src/entrypoint_utils.py`: shared CLI parsing/helpers for entrypoints.
-- `src/dataset.py`: dataset parsing + preprocessing into pickles; provides PyTorch `Dataset`.
-- `src/networks.py`: CNN-based `GyroNet` + experimental variants.
-- `src/losses.py`: `GyroLoss` using multi-rate SO(3) increment errors.
-- `src/learning.py`: training loop, evaluation, plotting, OpenVINS export.
-- `src/lie_algebra.py`: SO(3) / quaternion utilities.
-- `src/utils.py`: (pickle/yaml) IO helpers + batched linear algebra helpers.
-- `metrics.py`: tiny sanity check for SO(3) vs quaternion angle.
+Main files worth trusting first:
+- `main_EUROC.py`: main EuRoC entrypoint
+- `main_TUMVI.py`: main TUM-VI entrypoint
+- `src/entrypoint_utils.py`: shared CLI wiring for EuRoC / TUM-VI
+- `src/dataset.py`: dataset parsing and preprocessing
+- `src/networks.py`: canonical CNN model plus experimental variants
+- `src/losses.py`: multi-rate SO(3) increment loss
+- `src/learning.py`: train/test loops, plotting, OpenVINS export, calibrated-IMU baseline
 
-## Environment / Dependencies
+Useful support files:
+- `datasets_downloader.py`: dataset download / extract helper
+- `environment.yml`: preferred environment definition
+- `README.md`: user-facing project description, but currently behind the real repo state
 
-Primary env definition:
-- `environment.yml` (conda, name includes Python suffix: `denoise-imu-gyro-312`)
+## Validated Entry Points
 
-Runtime notes:
-- This codebase originally assumed CUDA everywhere; it has been updated to be device-agnostic.
-- If you have no GPU, it should run on CPU (slower).
+Smoke-tested successfully on 2026-04-22:
+- `main_EUROC.py --mode smoke`
+- `main_TUMVI.py --mode smoke`
+- `main_KITTI.py --mode smoke`
+- `main_with_rnn.py --mode smoke`
+- `main_without_acc.py --mode smoke`
 
-## How To Run
+Known broken entrypoint:
+- `main_with_trn.py` fails at import time because it references `src.networks.GyroNetWithTRN`, which does not exist
+
+Interpretation:
+- EuRoC and TUM-VI are the main maintained paths.
+- KITTI code exists and smoke-runs, but has not been treated as equally trustworthy.
+- RNN and no-accelerometer variants are experimental.
+
+## Model Notes
+
+Canonical model:
+- `src.networks.GyroNet`
+
+Important model details:
+- dilated causal-ish 1D CNN over IMU sequences
+- learned static calibration parameters `gyro_Rot` and `gyro_bias`
+- normalization factors injected from dataset statistics
+
+Experimental models:
+- `GyroNetWithoutAcc`
+- `GyroNetWithRNN`
+- `GyroNetWithCNNRNN`
+
+Baseline model:
+- `CalibratedIMUNet`
+- static correction of the form `(I + dC) * omega + b`
+- used as a calibrated-IMU comparison and as optional initialization for `GyroNet`
+
+## Dataset Notes
+
+Primary supported datasets:
+- EuRoC
+- TUM-VI
+
+Dataset-specific behavior:
+- EuRoC stores plain `xs` orientation increments
+- TUM-VI stores `xs` plus a validity mask
+- KITTI also stores masked targets, but the parser should be treated cautiously until dataset-backed validation is done
+
+Known caution:
+- `KITTiDataset` is less battle-tested than EuRoC / TUM-VI
+- if working on KITTI, read the parser carefully before trusting results
+
+## Environment
+
+Preferred env:
+- `environment.yml`
+- conda env name: `denoise-imu-gyro-312`
+
+Current assumptions:
+- device-agnostic execution is supported
+- CPU execution works, but training will be slower
+
+Common command:
+- `conda run -n denoise-imu-gyro-312 python main_EUROC.py --mode smoke`
+
+## CLI / Workflow
 
 All main entrypoints support:
 - `--mode {auto,train,test,smoke}`
-- `--data-dir <path>` (raw dataset root)
-- `--address <'last' | path>` (which run/weights to test)
+- `--data-dir <path>`
+- `--address <last | path>`
 
-`main_EUROC.py` and `main_TUMVI.py` also support:
-- `--epochs`, `--freq-val`, `--batch-size`, `--N`
-- `--scheduler {cosine,warm_restarts}` (default: `cosine`)
-- `--eta-min`, `--t-max` (cosine), `--t0`, `--t-mult` (warm restarts)
-- `--train-seqs`, `--val-seqs`, `--test-seqs` (comma-separated)
-- `--calib-baseline/--no-calib-baseline`, `--calib-steps`, `--calib-lr`
-- `--calib-init/--no-calib-init`, `--calib-freeze/--no-calib-freeze`
+EuRoC and TUM-VI also support:
+- training window and batch params
+- scheduler selection
+- sequence overrides
+- calibrated-IMU baseline toggles
+- calibrated-IMU initialization / freezing
 - `--no-show`
 
-Examples (no dataset required):
-- `conda run -n denoise-imu-gyro-312 python main_EUROC.py --mode smoke`
-- `conda run -n denoise-imu-gyro-312 python main_TUMVI.py --mode smoke`
-
-With datasets present:
-- `conda run -n denoise-imu-gyro-312 python main_EUROC.py --data-dir ./data/EUROC/dataset --mode train`
-- `conda run -n denoise-imu-gyro-312 python main_EUROC.py --data-dir ./data/EUROC/dataset --mode test --address last`
-- `conda run -n denoise-imu-gyro-312 python main_EUROC.py --mode test --no-calib-baseline` (disables the calibrated-IMU baseline)
-- `conda run -n denoise-imu-gyro-312 python main_TUMVI.py --data-dir ./data/TUMVI/dataset --mode train`
-- `conda run -n denoise-imu-gyro-312 python main_TUMVI.py --data-dir ./data/TUMVI/dataset --mode test --address last`
-- `conda run -n denoise-imu-gyro-312 python main_TUMVI.py --mode test --no-calib-baseline` (disables the calibrated-IMU baseline)
-
-Downloading datasets (network required):
-- `conda run -n denoise-imu-gyro-312 python datasets_downloader.py --sources TUMVI`
-  - Writes under `./data/<EUROC|TUMVI|KITTI>/{downloads,dataset}/`
-  - If TUM-VI hosting returns TLS hostname mismatch, retry with `--insecure` (disables TLS verification).
+Calibrated-IMU workflow lives in `src/learning.py`:
+- optional test-time comparison baseline
+- optional train-time initialization of learned calibration params
 
 ## Outputs
 
-- Training runs: `results/<DATASET>/<timestamp>/`
-  - `weights.pt`, `net_params.*`, `train_params.*`, plots per sequence
-- Tensorboard logs: `results/runs/<DATASET>/...`
-- OpenVINS export: `results/<DATASET>/<run>/<sequence>.txt`
+Training outputs:
+- `results/<DATASET>/<timestamp>/`
+- includes weights, params, yaml dumps, plots, per-sequence outputs
 
-## Implementation Notes / Gotchas
+TensorBoard:
+- `results/runs/<DATASET>/...`
 
-- YAML dumping: training config contains class objects; `src/utils.py` sanitizes these to strings for YAML output.
-- Paths: `src/dataset.py` creates `predata_dir` automatically; `src/learning.py` creates `res_dir` and `tb_dir`.
-- Loss stability: `GyroLoss` can produce NaNs on arbitrary random inputs; smoke tests use small-magnitude synthetic inputs.
-- Calibrated-IMU baseline: implemented as a static correction `(I + dC)ω + b` optimized by gradient descent (paper “calibrated IMU” comparison); enabled by default in `main_EUROC.py` and `main_TUMVI.py` (use `--no-calib-baseline` to disable).
-- Two-stage training option: you can fit the calibrated-IMU baseline first and use it to initialize the model calibration params via `main_EUROC.py --calib-init` or `main_TUMVI.py --calib-init` (optionally `--calib-freeze`).
-- Training prints the selected LR scheduler (class + params) and logs LR updates per epoch.
+Export:
+- OpenVINS-compatible text files under each run directory
 
-## Docs
+## Known Issues
 
-- Paper reference: `docs/PaperReference/2002.10718v2_IMU_denoise.pdf`
+Known code/documentation issues:
+- `main_with_trn.py` is broken
+- `README.md` still mostly reflects the original 2020 repo rather than the current fork
+- old branch-specific notes were previously stale; keep this file aligned with reality
+- there is no real automated test suite yet, only smoke-style execution checks
 
-## What Was Changed Recently (Keep Updated)
+Non-critical runtime note:
+- in sandboxed environments, Matplotlib may warn about a non-writable config dir and fall back to `/tmp`; this is noisy but not a repo bug
 
-Recent agent work (Dec 2025):
-- Device-agnostic execution (no hard `.cuda()` calls) across core modules.
-- Safer YAML load/dump via `yaml.safe_*` and YAML sanitization for non-serializable objects.
-- CLI-style `--mode/--data-dir/--address` support in all `main_*.py`.
-- Added `environment.yml` (`denoise-imu-gyro-312`).
-- Added `datasets_downloader.py` flags (`--sources`, retries/timeouts, optional `--insecure`).
-- Added EuRoC/TUM-VI “calibrated IMU” GD baseline support (static correction) for comparison plots.
-- Refactored EuRoC/TUM-VI entrypoints to share CLI parsing via `src/entrypoint_utils.py`.
-- Fixed masked rotation-matrix loss handling and validation checkpoint selection.
-- Made LR scheduler selectable via CLI (default `CosineAnnealingLR`) and fixed double scheduler stepping.
+## Near-Term Priorities
+
+Recommended maintenance order:
+1. Fix or remove `main_with_trn.py`
+2. Refresh `README.md` to match the current fork
+3. Add minimal automated smoke tests / CI
+4. Clarify KITTI support status
+5. Keep `AGENT.md` updated after meaningful repo changes
+
+## Memory Policy
+
+When updating memory:
+- record scope decisions
+- record which entrypoints are trusted or broken
+- record dataset assumptions
+- record behavior changes, not just code changes
+- avoid branch-specific claims unless they are refreshed from `git` at the time of writing
+
+What belongs here:
+- repo-local facts needed by future agents
+- stable run commands
+- known pitfalls
+- current strategy decisions
+
+What can move to the AI memory MCP later:
+- cross-repo research notes
+- longer experiment history
+- structured paper comparisons
+- user preferences that are not specific to this repo
+
+## Active Planning Docs
+
+Current execution roadmap:
+- `docs/optimization-roadmap.md`
