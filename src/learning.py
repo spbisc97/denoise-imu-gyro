@@ -80,6 +80,49 @@ class LearningBasedProcessing:
                 print(f"[WARN] Unexpected keys: {unexpected}")
         self.net.to(self.device)
 
+    def build_optimizer(self, Optimizer, optimizer_params):
+        """Create an optimizer with saner parameter groups for CNN + calibration."""
+        params = dict(optimizer_params)
+        base_lr = float(params.pop("lr"))
+        base_weight_decay = float(params.pop("weight_decay", 0.0))
+        calib_lr_scale = float(params.pop("calib_lr_scale", 1.0))
+        calib_weight_decay = float(params.pop("calib_weight_decay", 0.0))
+        norm_weight_decay = float(params.pop("norm_weight_decay", 0.0))
+
+        decay_params = []
+        norm_params = []
+        calib_params = []
+        no_decay_params = []
+
+        for name, param in self.net.named_parameters():
+            if not param.requires_grad:
+                continue
+            if name in {"gyro_Rot", "gyro_bias", "dC", "b"}:
+                calib_params.append(param)
+            elif param.ndim <= 1 or name.endswith("bias"):
+                no_decay_params.append(param)
+            elif "bn" in name.lower() or "norm" in name.lower():
+                norm_params.append(param)
+            else:
+                decay_params.append(param)
+
+        param_groups = []
+        if decay_params:
+            param_groups.append({"params": decay_params, "lr": base_lr, "weight_decay": base_weight_decay})
+        if norm_params:
+            param_groups.append({"params": norm_params, "lr": base_lr, "weight_decay": norm_weight_decay})
+        if no_decay_params:
+            param_groups.append({"params": no_decay_params, "lr": base_lr, "weight_decay": 0.0})
+        if calib_params:
+            param_groups.append(
+                {
+                    "params": calib_params,
+                    "lr": base_lr * calib_lr_scale,
+                    "weight_decay": calib_weight_decay,
+                }
+            )
+        return Optimizer(param_groups, lr=base_lr, **params)
+
     def train(self, dataset_class, dataset_params, train_params):
         """train the neural network. GPU is assumed"""
         self.train_params = train_params
@@ -102,13 +145,13 @@ class LearningBasedProcessing:
 
         # get parameters
         dataloader_params = train_params['dataloader']
-        optimizer_params = train_params['optimizer']
+        optimizer_params = dict(train_params['optimizer'])
         scheduler_params = train_params['scheduler']
         loss_params = train_params['loss']
 
         # define optimizer, scheduler and loss
         dataloader = DataLoader(dataset_train, **dataloader_params)
-        optimizer = Optimizer(self.net.parameters(), **optimizer_params)
+        optimizer = self.build_optimizer(Optimizer, optimizer_params)
         scheduler = Scheduler(optimizer, **scheduler_params)
         criterion = Loss(**loss_params).to(self.device)
 
@@ -135,7 +178,7 @@ class LearningBasedProcessing:
         # start tensorboard writer
         writer = SummaryWriter(self.tb_address)
         start_time = time.time()
-        best_loss = torch.Tensor([float('Inf')])
+        best_loss = torch.tensor(float('inf'))
 
         # define some function for seeing evolution of training
         def write(epoch, loss_epoch):
@@ -169,6 +212,21 @@ class LearningBasedProcessing:
                 cprint(msg, 'yellow')
             writer.add_scalar('loss/val', loss.item(), epoch)
             return best_loss
+
+        def validate_initial_model():
+            initial_loss = self.loop_val(dataset_val, criterion)
+            writer.add_scalar('loss/val', initial_loss.item(), 0)
+            if torch.isfinite(initial_loss):
+                cprint(
+                    'initial validation loss {:.4f} saved as starting checkpoint'.format(initial_loss.item()),
+                    'cyan',
+                )
+                self.save_net()
+                return initial_loss
+            cprint('initial validation loss is not finite; starting without checkpoint', 'yellow')
+            return torch.tensor(float('inf'))
+
+        best_loss = validate_initial_model()
 
         # training loop !
         for epoch in range(1, n_epochs + 1):

@@ -35,6 +35,33 @@ def add_common_entrypoint_args(
     parser.add_argument("--freq-val", type=int, default=int(train_params["freq_val"]))
     parser.add_argument("--batch-size", type=int, default=int(train_params["dataloader"]["batch_size"]))
     parser.add_argument("--N", type=int, default=int(dataset_params["N"]), help="Training window length (samples)")
+    parser.add_argument("--lr", type=float, default=float(train_params["optimizer"]["lr"]))
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=float(train_params["optimizer"].get("weight_decay", 0.0)),
+    )
+    parser.add_argument(
+        "--calib-lr-scale",
+        type=float,
+        default=float(train_params["optimizer"].get("calib_lr_scale", 1.0)),
+    )
+    parser.add_argument(
+        "--calib-weight-decay",
+        type=float,
+        default=float(train_params["optimizer"].get("calib_weight_decay", 0.0)),
+    )
+    parser.add_argument(
+        "--norm-weight-decay",
+        type=float,
+        default=float(train_params["optimizer"].get("norm_weight_decay", 0.0)),
+    )
+    parser.add_argument(
+        "--shuffle",
+        action=argparse.BooleanOptionalAction,
+        default=bool(train_params["dataloader"].get("shuffle", True)),
+        help="Shuffle training windows each epoch.",
+    )
 
     scheduler_defaults = dict(train_params.get("scheduler", {}))
     parser.add_argument(
@@ -117,6 +144,12 @@ def apply_common_entrypoint_overrides(
     train_params["n_epochs"] = int(args.epochs)
     train_params["freq_val"] = int(args.freq_val)
     train_params["dataloader"]["batch_size"] = int(args.batch_size)
+    train_params["dataloader"]["shuffle"] = bool(args.shuffle)
+    train_params["optimizer"]["lr"] = float(args.lr)
+    train_params["optimizer"]["weight_decay"] = float(args.weight_decay)
+    train_params["optimizer"]["calib_lr_scale"] = float(args.calib_lr_scale)
+    train_params["optimizer"]["calib_weight_decay"] = float(args.calib_weight_decay)
+    train_params["optimizer"]["norm_weight_decay"] = float(args.norm_weight_decay)
 
     eta_min = float(args.eta_min)
     if args.scheduler == "cosine":

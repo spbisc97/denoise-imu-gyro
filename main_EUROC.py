@@ -75,8 +75,11 @@ dataset_params = {
 train_params = {
     'optimizer_class': torch.optim.Adam,
     'optimizer': {
-        'lr': 0.01,
-        'weight_decay': 1e-1,
+        'lr': 3e-3,
+        'weight_decay': 1e-4,
+        'calib_lr_scale': 0.25,
+        'calib_weight_decay': 0.0,
+        'norm_weight_decay': 0.0,
         'amsgrad': False,
     },
     'loss_class': sl.GyroLoss,
@@ -97,7 +100,7 @@ train_params = {
         'batch_size': 10,
         'pin_memory': False,
         'num_workers': 0,
-        'shuffle': False,
+        'shuffle': True,
     },
     # frequency of validation step
     'freq_val': 600,

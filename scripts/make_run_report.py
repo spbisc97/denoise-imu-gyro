@@ -47,6 +47,15 @@ DATASET_CONFIGS = {
         min_train_freq=16,
         max_train_freq=32,
     ),
+    "BLACKBIRD": DatasetConfig(
+        dataset_class=ds.BLACKBIRDDataset,
+        default_data_dir=os.path.join(BASE_DIR, "data", "BLACKBIRD", "dataset"),
+        predata_dir=os.path.join(BASE_DIR, "data", "BLACKBIRD"),
+        dt=0.01,
+        N=16 * 500,
+        min_train_freq=8,
+        max_train_freq=16,
+    ),
 }
 
 
@@ -61,10 +70,14 @@ def parse_args():
 
 def discover_sequences(run_dir):
     sequences = []
-    for entry in sorted(os.listdir(run_dir)):
-        path = os.path.join(run_dir, entry, "results.p")
-        if os.path.isfile(path):
-            sequences.append(entry)
+    for root, _, files in os.walk(run_dir):
+        if "results.p" not in files:
+            continue
+        rel_dir = os.path.relpath(root, run_dir)
+        if rel_dir == ".":
+            continue
+        sequences.append(rel_dir)
+    sequences.sort()
     if not sequences:
         raise FileNotFoundError(f"No sequence results found under {run_dir!r}")
     return sequences

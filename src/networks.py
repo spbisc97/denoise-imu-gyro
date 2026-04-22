@@ -50,6 +50,7 @@ class BaseNet(torch.nn.Module):
         # for normalizing inputs
         self.register_buffer('mean_u', torch.zeros(in_dim))
         self.register_buffer('std_u', torch.ones(in_dim))
+        self._zero_init_output_head()
 
     def forward(self, us):
         u = self.norm(us).transpose(1, 2)
@@ -67,13 +68,23 @@ class BaseNet(torch.nn.Module):
         self.mean_u.copy_(mean_u.to(self.mean_u.device))
         self.std_u.copy_(std_u.to(self.std_u.device))
 
+    def _zero_init_output_head(self):
+        # Start the residual branch at zero so the network initially behaves like
+        # the static calibration path instead of injecting random corrections.
+        for module in reversed(self.cnn):
+            if isinstance(module, torch.nn.Conv1d):
+                torch.nn.init.zeros_(module.weight)
+                if module.bias is not None:
+                    torch.nn.init.zeros_(module.bias)
+                break
+
 
 class GyroNet(BaseNet):
     def __init__(self, in_dim, out_dim, c0, dropout, ks, ds, momentum,
         gyro_std):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
         self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
-        self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.gyro_Rot = torch.nn.Parameter(torch.zeros(3, 3))
         self.gyro_bias = torch.nn.Parameter(torch.zeros(3))
         self.register_buffer('Id3', torch.eye(3))
 
@@ -89,7 +100,7 @@ class GyroNetWithoutAcc(BaseNet):
         gyro_std):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
         self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
-        self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.gyro_Rot = torch.nn.Parameter(torch.zeros(3, 3))
         self.gyro_bias = torch.nn.Parameter(torch.zeros(3))
         self.register_buffer('Id3', torch.eye(3))
 
@@ -107,7 +118,7 @@ class GyroNetWithRNN(BaseNet):
         gyro_std):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
         self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
-        self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.gyro_Rot = torch.nn.Parameter(torch.zeros(3, 3))
         self.gyro_bias = torch.nn.Parameter(torch.zeros(3))
         self.register_buffer('Id3', torch.eye(3))
         
@@ -127,7 +138,7 @@ class GyroNetWithCNNRNN(BaseNet):
         gyro_std):
         super().__init__(in_dim, out_dim, c0, dropout, ks, ds, momentum)
         self.register_buffer('gyro_std', torch.as_tensor(gyro_std, dtype=torch.float32))
-        self.gyro_Rot = torch.nn.Parameter(0.05 * torch.randn(3, 3))
+        self.gyro_Rot = torch.nn.Parameter(torch.zeros(3, 3))
         self.gyro_bias = torch.nn.Parameter(torch.zeros(3))
         self.register_buffer('Id3', torch.eye(3))
         

@@ -36,6 +36,11 @@ URLS = {
         "https://cdn2.vision.in.tum.de/tumvi/exported/euroc/512_16/",
         "https://cdn1.vision.in.tum.de/tumvi/exported/euroc/512_16/",
     ],
+    # Blackbird UAV dataset (download only the minimal CSV/GT files needed by this repo).
+    "BLACKBIRD": [
+        "https://ijrr20-blackbird-dataset.s3-accelerate.amazonaws.com/BlackbirdDatasetData/",
+        "http://blackbird-dataset.mit.edu/BlackbirdDatasetData/",
+    ],
 }
 
 
@@ -71,7 +76,36 @@ DATASETS = {
         "dataset-room5_512_16.tar",
         "dataset-room6_512_16.tar",
     ],
+    "BLACKBIRD": [
+        "clover/yawConstant/maxSpeed3p0",
+        "clover/yawForward/maxSpeed3p0",
+        "halfMoon/yawConstant/maxSpeed4p0",
+        "mouse/yawForward/maxSpeed5p0",
+        "picasso/yawConstant/maxSpeed4p0",
+        "sphinx/yawForward/maxSpeed4p0",
+        "thrice/yawForward/maxSpeed5p0",
+        "winter/yawConstant/maxSpeed4p0",
+        "mouse/yawConstant/maxSpeed5p0",
+        "sid/yawForward/maxSpeed4p0",
+        "star/yawConstant/maxSpeed5p0",
+        "clover/yawForward/maxSpeed5p0",
+        "mouse/yawForward/maxSpeed6p0",
+        "thrice/yawConstant/maxSpeed6p0",
+        "tiltedThrice/yawForward/maxSpeed6p0",
+    ],
 }
+
+
+BLACKBIRD_GLOBAL_FILES = [
+    "trajectoryOffsets.yaml",
+]
+
+BLACKBIRD_SEQUENCE_FILES = [
+    "flightNormalizationOffset.csv",
+    "groundTruthPoses.csv",
+    "csv/blackbird_slash_imu.csv",
+    "csv/blackbird_slash_state.csv",
+]
 
 
 def ensure_directory_exists(path: str) -> None:
@@ -200,8 +234,94 @@ def process_dataset(
             verify_tls=verify_tls,
         )
         if ok:
-            extract_file(download_path, extract_path, keep_images=keep_images)
+            extracted = extract_file(download_path, extract_path, keep_images=keep_images)
+            if extracted:
+                return
+    print(f"[ERROR] Failed to download/extract {dataset_path} from all configured URLs for {source}.")
+
+
+def _download_blackbird_file(
+    base_url: str,
+    rel_path: str,
+    extract_folder: str,
+    *,
+    timeout_s: int,
+    retries: int,
+    backoff_s: float,
+    session: requests.Session,
+    verify_tls: bool,
+) -> bool:
+    output_path = os.path.join(extract_folder, rel_path)
+    return download_file(
+        base_url + rel_path,
+        output_path,
+        timeout_s=timeout_s,
+        retries=retries,
+        backoff_s=backoff_s,
+        session=session,
+        verify_tls=verify_tls,
+    )
+
+
+def process_blackbird_flight(
+    flight: str,
+    extract_folder: str,
+    *,
+    timeout_s: int,
+    retries: int,
+    backoff_s: float,
+    session: requests.Session,
+    verify_tls: bool,
+) -> None:
+    required = [os.path.join(flight, rel) for rel in BLACKBIRD_SEQUENCE_FILES]
+    if all(os.path.isfile(os.path.join(extract_folder, rel)) for rel in required):
+        print(f"[INFO] Blackbird flight already present: {flight}. Skipping.")
         return
+
+    for base_url in URLS["BLACKBIRD"]:
+        ok = True
+        for rel in required:
+            if not _download_blackbird_file(
+                base_url,
+                rel,
+                extract_folder,
+                timeout_s=timeout_s,
+                retries=retries,
+                backoff_s=backoff_s,
+                session=session,
+                verify_tls=verify_tls,
+            ):
+                ok = False
+                break
+        if ok:
+            return
+    print(f"[ERROR] Failed to download Blackbird flight {flight!r} from all configured URLs.")
+
+
+def download_blackbird_globals(
+    extract_folder: str,
+    *,
+    timeout_s: int,
+    retries: int,
+    backoff_s: float,
+    session: requests.Session,
+    verify_tls: bool,
+) -> None:
+    for rel in BLACKBIRD_GLOBAL_FILES:
+        for base_url in URLS["BLACKBIRD"]:
+            if _download_blackbird_file(
+                base_url,
+                rel,
+                extract_folder,
+                timeout_s=timeout_s,
+                retries=retries,
+                backoff_s=backoff_s,
+                session=session,
+                verify_tls=verify_tls,
+            ):
+                break
+        else:
+            print(f"[WARN] Failed to download optional Blackbird global file: {rel}")
 
 
 def download_and_extract_datasets(
@@ -222,6 +342,37 @@ def download_and_extract_datasets(
         ensure_directory_exists(extract_folder)
 
         print(f"[INFO] Processing datasets for {source}...")
+        if source == "BLACKBIRD":
+            if keep_images:
+                print("[WARN] --images is not supported for BLACKBIRD in this downloader; downloading minimal CSV/GT files only.")
+            download_blackbird_globals(
+                extract_folder,
+                timeout_s=timeout_s,
+                retries=retries,
+                backoff_s=backoff_s,
+                session=session,
+                verify_tls=verify_tls,
+            )
+            with ThreadPoolExecutor(max_workers=concurrent_downloads) as executor:
+                futures = [
+                    executor.submit(
+                        process_blackbird_flight,
+                        flight,
+                        extract_folder,
+                        timeout_s=timeout_s,
+                        retries=retries,
+                        backoff_s=backoff_s,
+                        session=session,
+                        verify_tls=verify_tls,
+                    )
+                    for flight in DATASETS[source]
+                ]
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        print(f"[ERROR] Exception occurred: {e}")
+            continue
         with ThreadPoolExecutor(max_workers=concurrent_downloads) as executor:
             futures = [
                 executor.submit(
@@ -251,7 +402,7 @@ def main() -> int:
     parser.add_argument(
         "--sources",
         default="EUROC,TUMVI",
-        help="Comma-separated list: EUROC,TUMVI,KITTI (default: EUROC,TUMVI)",
+        help="Comma-separated list: EUROC,TUMVI,KITTI,BLACKBIRD (default: EUROC,TUMVI)",
     )
     parser.add_argument("--max-workers", type=int, default=2)
     parser.add_argument("--timeout-s", type=int, default=600)
