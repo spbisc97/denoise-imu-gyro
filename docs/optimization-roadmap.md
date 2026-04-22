@@ -14,20 +14,34 @@ Primary goals:
 - improve training correctness before chasing speed
 - add enough automation that regressions are visible quickly
 - keep the repo focused on gyro denoising / attitude estimation, not a general inertial platform
+- maximize gyro correction precision with the canonical CNN path
 
 Non-goals for this phase:
 - large architectural rewrite
 - full multi-sensor fusion stack
 - broad repo split
 - premature optimization of code that is not yet trusted
+- architecture churn that distracts from improving the main CNN
 
 ## Priority Order
 
 1. Correctness and trustworthiness
 2. Reproducibility and testability
-3. Training and preprocessing efficiency
-4. Research-facing model ablations
-5. Optional speedups and cleanup
+3. CNN gyro precision
+4. Training and preprocessing efficiency
+5. Research-facing model ablations
+6. Optional speedups and cleanup
+
+## Main Research Target
+
+The main interest for this phase is:
+- really precise gyro estimates from CNNs
+
+This means:
+- favor the canonical `GyroNet` path
+- treat RNN / CNN-RNN / TRN-style work as secondary
+- optimize for corrected gyro quality and downstream attitude accuracy
+- avoid spending time on model novelty until the CNN baseline is clean and well-measured
 
 ## Workstreams
 
@@ -90,7 +104,29 @@ Success criteria:
 - broken scripts fail in CI before merge
 - repo can be validated on a fresh machine without datasets
 
-## 4. Improve Training Workflow
+## 4. Improve CNN Gyro Precision
+
+Objective:
+- increase corrected gyro accuracy on the canonical CNN path
+
+Tasks:
+- verify the CNN is trained on representative windows from the full sequence
+- audit normalization, augmentation, and target construction for error amplification
+- run controlled ablations on receptive field, dilation schedule, and kernel sizes
+- compare accel-enabled CNN against `GyroNetWithoutAcc` to test whether accel input actually helps
+- compare plain CNN against calibrated-IMU initialization and freeze modes
+- define one canonical evaluation table for raw IMU vs calibrated-IMU vs CNN
+
+Suggested evaluation targets:
+- downstream orientation error on EuRoC and TUM-VI
+- per-sequence consistency, not just mean performance
+- calibration robustness across train/test splits
+
+Success criteria:
+- CNN beats raw IMU and calibrated-IMU baselines consistently
+- gains come from measured ablations, not one-off settings
+
+## 5. Improve Training Workflow
 
 Objective:
 - make experiments easier to run, compare, and reproduce
@@ -106,7 +142,7 @@ Success criteria:
 - repeated experiments are traceable
 - config drift between runs is easy to detect
 
-## 5. Efficiency Pass
+## 6. Efficiency Pass
 
 Objective:
 - improve runtime only after correctness is in place
@@ -122,7 +158,7 @@ Success criteria:
 - preprocessing and smoke/test runs are faster without changing results
 - any training speedup is measured, not assumed
 
-## 6. Research Cleanup
+## 7. Research Cleanup
 
 Objective:
 - separate trustworthy baselines from speculative branches
@@ -176,7 +212,8 @@ Recommended next implementation order:
 2. fix dataset first-run normalization behavior
 3. fix training window sampling
 4. add smoke tests
-5. refresh `README.md`
+5. build the first CNN-vs-baseline evaluation table
+6. refresh `README.md`
 
 ## Decision Log
 
@@ -184,4 +221,5 @@ Current strategic decisions:
 - keep this repository as the focused gyro-denoising / attitude-estimation repo
 - do not split to a new repo yet
 - prefer correctness fixes over model churn
+- prioritize CNN gyro precision over broader architecture exploration
 - use `AGENT.md` as the local repo memory and treat this roadmap as an execution document

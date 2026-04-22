@@ -18,6 +18,8 @@ Current repo decision:
 - Do not split into a new repository yet.
 - Keep this repo focused on the 2020 paper lineage plus closely related calibration / denoising extensions.
 - Create a new repo only if the work expands into a broader inertial odometry platform, multi-sensor fusion framework, or general benchmark suite.
+- Primary technical objective: maximize gyro correction precision with CNN-based models on the maintained datasets.
+- Deprioritize non-CNN model exploration unless the canonical CNN path is clearly saturated.
 
 ## Current State
 
@@ -46,6 +48,16 @@ Field context from later literature:
 - The 2024 survey "Deep Learning for Inertial Positioning" places this work in the sensor-level calibration / denoising branch.
 - This is narrower than full learned inertial odometry methods such as AI-IMU Dead-Reckoning, TLIO, and newer hybrid inertial/VIO systems.
 - Keep repo goals narrow unless the user explicitly decides to broaden scope.
+
+## Current Research Priority
+
+Primary interest:
+- really precise gyro correction from CNNs
+
+Interpretation for future work:
+- optimize the canonical CNN path before spending time on RNN, CNN-RNN, transformer, or broader odometry work
+- judge progress by corrected gyro quality and downstream attitude accuracy, not by model novelty alone
+- prefer fixes that improve training signal quality, calibration quality, receptive-field usefulness, and evaluation discipline
 
 ## Canonical Code Paths
 
@@ -94,6 +106,10 @@ Experimental models:
 - `GyroNetWithoutAcc`
 - `GyroNetWithRNN`
 - `GyroNetWithCNNRNN`
+
+Model strategy:
+- `GyroNet` is the main line
+- experimental variants should not outrank CNN precision work unless they show clear gains in controlled comparisons
 
 Baseline model:
 - `CalibratedIMUNet`
@@ -178,6 +194,12 @@ Recommended maintenance order:
 3. Add minimal automated smoke tests / CI
 4. Clarify KITTI support status
 5. Keep `AGENT.md` updated after meaningful repo changes
+
+Research optimization order:
+1. improve dataset / target correctness for the CNN path
+2. improve CNN training coverage and reproducibility
+3. compare CNN against the calibrated-IMU baseline cleanly
+4. only then consider new architectures
 
 ## Memory Policy
 
