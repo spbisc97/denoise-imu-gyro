@@ -129,7 +129,7 @@ def download_file(
     return False
 
 
-def extract_file(path: str, extract_to: str) -> bool:
+def extract_file(path: str, extract_to: str, *, keep_images: bool) -> bool:
     if _is_nonempty_dir(extract_to):
         print(f"[INFO] Dataset already extracted: {extract_to}. Skipping extraction.")
         return True
@@ -138,14 +138,26 @@ def extract_file(path: str, extract_to: str) -> bool:
         print(f"[WARN] Archive not found, skipping extraction: {path}")
         return False
 
+    def should_extract(name: str) -> bool:
+        if keep_images:
+            return True
+        skip_patterns = [
+            "/cam0/", "/cam1/", "/cam2/", "/cam3/",
+            "/image_00/", "/image_01/", "/image_02/", "/image_03/",
+            "/velodyne_points/", "/pointcloud0/"
+        ]
+        return not any(p in name for p in skip_patterns)
+
     ensure_directory_exists(extract_to)
     try:
         if path.endswith(".zip"):
             with zipfile.ZipFile(path, "r") as zf:
-                zf.extractall(extract_to)
+                members = [m for m in zf.namelist() if should_extract(m)]
+                zf.extractall(extract_to, members=members)
         elif path.endswith(".tar"):
             with tarfile.open(path, "r") as tf:
-                tf.extractall(path=extract_to)
+                members = [m for m in tf.getmembers() if should_extract(m.name)]
+                tf.extractall(path=extract_to, members=members)
         else:
             print(f"[WARN] Unknown archive type: {path}")
             return False
@@ -166,6 +178,7 @@ def process_dataset(
     backoff_s: float,
     session: requests.Session,
     verify_tls: bool,
+    keep_images: bool,
 ) -> None:
     file_name = os.path.basename(dataset_path)
     download_path = os.path.join(download_folder, file_name)
@@ -187,8 +200,8 @@ def process_dataset(
             verify_tls=verify_tls,
         )
         if ok:
-            extract_file(download_path, extract_path)
-            return
+            extract_file(download_path, extract_path, keep_images=keep_images)
+        return
 
 
 def download_and_extract_datasets(
@@ -199,6 +212,7 @@ def download_and_extract_datasets(
     retries: int,
     backoff_s: float,
     verify_tls: bool,
+    keep_images: bool,
 ) -> None:
     session = requests.Session()
     for source in sources:
@@ -221,6 +235,7 @@ def download_and_extract_datasets(
                     backoff_s=backoff_s,
                     session=session,
                     verify_tls=verify_tls,
+                    keep_images=keep_images,
                 )
                 for dataset in DATASETS[source]
             ]
@@ -247,6 +262,12 @@ def main() -> int:
         action="store_true",
         help="Disable TLS certificate verification for downloads (use only if required).",
     )
+    parser.add_argument(
+        "--images",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Extract image and pointcloud data (skipped by default to save space).",
+    )
     args = parser.parse_args()
 
     sources = [s.strip().upper() for s in args.sources.split(",") if s.strip()]
@@ -262,10 +283,10 @@ def main() -> int:
         retries=args.retries,
         backoff_s=args.backoff_s,
         verify_tls=not args.insecure,
+        keep_images=args.images,
     )
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

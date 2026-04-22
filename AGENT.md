@@ -13,6 +13,7 @@ This repository is still one project:
 - learned IMU gyroscope denoising / calibration
 - open-loop attitude estimation
 - EuRoC / TUM-VI as the main validated datasets
+- Blackbird as the newly integrated aggressive-UAV dataset path
 
 Current repo decision:
 - Do not split into a new repository yet.
@@ -24,7 +25,7 @@ Current repo decision:
 ## Current State
 
 As last checked on 2026-04-22:
-- current branch: `presentation/little-cheat`
+- current branch: `optimization-roadmap`
 - repo has local user changes outside this file (`.gitignore`, untracked `.codex/`, untracked `.gemini/`)
 - repo is substantially ahead of `origin/master`; treat this fork as its own evolving code line, not a thin patch set
 
@@ -64,6 +65,7 @@ Interpretation for future work:
 Main files worth trusting first:
 - `main_EUROC.py`: main EuRoC entrypoint
 - `main_TUMVI.py`: main TUM-VI entrypoint
+- `main_BLACKBIRD.py`: Blackbird entrypoint (official CSV-export layout)
 - `src/entrypoint_utils.py`: shared CLI wiring for EuRoC / TUM-VI
 - `src/dataset.py`: dataset parsing and preprocessing
 - `src/networks.py`: canonical CNN model plus experimental variants
@@ -83,6 +85,7 @@ Smoke-tested successfully on 2026-04-22:
 - `main_KITTI.py --mode smoke`
 - `main_with_rnn.py --mode smoke`
 - `main_without_acc.py --mode smoke`
+- `main_BLACKBIRD.py --mode smoke`
 
 Known broken entrypoint:
 - `main_with_trn.py` fails at import time because it references `src.networks.GyroNetWithTRN`, which does not exist
@@ -121,15 +124,59 @@ Baseline model:
 Primary supported datasets:
 - EuRoC
 - TUM-VI
+- Blackbird
 
 Dataset-specific behavior:
 - EuRoC stores plain `xs` orientation increments
 - TUM-VI stores `xs` plus a validity mask
+- Blackbird uses official CSV exports under `<trajectory>/<yawMode>/<speed>/csv/`
+- Blackbird ground truth is converted from `body_frame` to the IMU frame using the static body-to-IMU rotation from the official upstream conversion utilities
 - KITTI also stores masked targets, but the parser should be treated cautiously until dataset-backed validation is done
 
 Known caution:
+- Blackbird integration is based on the official repo structure and message-conversion utilities, but it has not yet been dataset-backed validated locally because the official host was not reachable from this environment
 - `KITTiDataset` is less battle-tested than EuRoC / TUM-VI
 - if working on KITTI, read the parser carefully before trusting results
+
+## Blackbird Integration Provenance
+
+Upstream sources used for the Blackbird integration:
+- official repo README: dataset naming, sequence organization, and general usage
+- `fileTreeUtilities/sequenceDownloader.py`: exact folder layout and expected downloaded files per sequence
+- `logConversionUtilities/bagToCsv.py`: official CSV export names and column ordering assumptions
+- `logConversionUtilities/msgConverters.py`: topic mapping and the static `body_frame -> imu` rotation used to convert ground-truth attitudes into the IMU frame
+- `ros_utilities/blackbird_dataset/launch/playback_sequence.launch`: confirms the per-sequence path convention rooted at `<datasetDir>/<flight>/`
+- IJRR dataset paper: dataset characteristics and sensor rates
+
+Implementation assumptions derived from those sources:
+- raw data root for a sequence is `<data_dir>/<trajectory>/<yawMode>/<speed>/`
+- preferred parser inputs are `csv/blackbird_slash_imu.csv` and `csv/blackbird_slash_state.csv`
+- fallback ground-truth input is `groundTruthPoses.csv` if the state CSV is missing
+- default Blackbird timing is `dt = 0.01` because the dataset IMU is `100 Hz`
+- default `min_train_freq = 8` and `max_train_freq = 16` were chosen to keep the orientation-increment horizon roughly comparable to the existing `200 Hz` EuRoC / TUM-VI setup
+- nested predata paths are required because Blackbird sequence names contain `/`
+
+## Blackbird Validation Status
+
+What has been validated locally:
+- `conda run -n denoise-imu-gyro-312 python main_BLACKBIRD.py --mode smoke`
+- parser path exercised against a synthetic on-disk fixture matching the official Blackbird folder and CSV layout
+- shared preprocessing flow now computes normalization after dataset preprocessing and supports nested sequence names in cached predata paths
+
+What remains unvalidated here:
+- no end-to-end run against hosted real Blackbird files was possible from this environment
+- `blackbird-dataset.mit.edu` was not reachable during integration work
+- CSV column assumptions are source-aligned, but still deserve one real-sequence train/test pass before treating Blackbird results as fully trusted
+
+## Blackbird Source Links
+
+Primary references:
+- `https://github.com/mit-aera/Blackbird-Dataset`
+- `https://github.com/mit-aera/Blackbird-Dataset/blob/master/fileTreeUtilities/sequenceDownloader.py`
+- `https://github.com/mit-aera/Blackbird-Dataset/blob/master/logConversionUtilities/bagToCsv.py`
+- `https://github.com/mit-aera/Blackbird-Dataset/blob/master/logConversionUtilities/msgConverters.py`
+- `https://github.com/mit-aera/Blackbird-Dataset/blob/master/ros_utilities/blackbird_dataset/launch/playback_sequence.launch`
+- `https://doi.org/10.1177/0278364920908331`
 
 ## Environment
 
@@ -143,6 +190,7 @@ Current assumptions:
 
 Common command:
 - `conda run -n denoise-imu-gyro-312 python main_EUROC.py --mode smoke`
+- `conda run -n denoise-imu-gyro-312 python main_BLACKBIRD.py --mode smoke`
 
 ## CLI / Workflow
 

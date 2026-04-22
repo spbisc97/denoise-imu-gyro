@@ -25,6 +25,9 @@ def pload(*f_names):
 def pdump(pickle_dict, *f_names):
     """Pickle dump"""
     f_name = os.path.join(*f_names)
+    parent = os.path.dirname(f_name)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(f_name, "wb") as f:
         pickle.dump(pickle_dict, f)
 
