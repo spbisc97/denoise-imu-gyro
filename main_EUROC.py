@@ -68,6 +68,7 @@ dataset_params = {
     'N': 32 * 500, # should be integer * 'max_train_freq'
     'min_train_freq': 16,
     'max_train_freq': 32,
+    'train_windows_per_seq': 16,
 }
 ################################################################################
 # Training parameters

@@ -35,6 +35,12 @@ def add_common_entrypoint_args(
     parser.add_argument("--freq-val", type=int, default=int(train_params["freq_val"]))
     parser.add_argument("--batch-size", type=int, default=int(train_params["dataloader"]["batch_size"]))
     parser.add_argument("--N", type=int, default=int(dataset_params["N"]), help="Training window length (samples)")
+    parser.add_argument(
+        "--train-windows-per-seq",
+        type=int,
+        default=int(dataset_params.get("train_windows_per_seq", 16)),
+        help="Number of random windows to draw per training sequence in each epoch.",
+    )
     parser.add_argument("--lr", type=float, default=float(train_params["optimizer"]["lr"]))
     parser.add_argument(
         "--weight-decay",
@@ -137,6 +143,7 @@ def apply_common_entrypoint_overrides(
 ) -> None:
     dataset_params["data_dir"] = args.data_dir
     dataset_params["N"] = int(args.N)
+    dataset_params["train_windows_per_seq"] = int(args.train_windows_per_seq)
     dataset_params["train_seqs"] = [s for s in args.train_seqs.split(",") if s]
     dataset_params["val_seqs"] = [s for s in args.val_seqs.split(",") if s]
     dataset_params["test_seqs"] = [s for s in args.test_seqs.split(",") if s]

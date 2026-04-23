@@ -3,6 +3,7 @@ from src.lie_algebra import SO3
 from termcolor import cprint
 from torch.utils.data.dataset import Dataset
 from scipy.interpolate import interp1d
+import hashlib
 import numpy as np
 import matplotlib.pyplot as plt
 import pickle
@@ -52,12 +53,12 @@ def _load_blackbird_csv(path, usecols, *, skip_header=1):
 class BaseDataset(Dataset):
 
     def __init__(self, predata_dir, train_seqs, val_seqs, test_seqs, mode, N,
-        min_train_freq=128, max_train_freq=512, dt=0.005):
+        min_train_freq=128, max_train_freq=512, dt=0.005,
+        train_windows_per_seq=16):
         super().__init__()
         # where record pre loaded data
         self.predata_dir = predata_dir
         os.makedirs(self.predata_dir, exist_ok=True)
-        self.path_normalize_factors = os.path.join(predata_dir, 'nf.p')
 
         self.mode = mode
         self.train_sequences = list(train_seqs)
@@ -66,6 +67,7 @@ class BaseDataset(Dataset):
         self.all_requested_sequences = list(dict.fromkeys(
             self.train_sequences + self.val_sequences + self.test_sequences
         ))
+        self.path_normalize_factors = self._normalization_cache_path(self.train_sequences)
         # choose between training, validation or test sequences
         _, self.sequences = self.get_sequences(self.train_sequences, self.val_sequences,
             self.test_sequences)
@@ -84,6 +86,7 @@ class BaseDataset(Dataset):
         self.N = N # power of 2
         self.min_train_freq = min_train_freq
         self.max_train_freq = max_train_freq
+        self.train_windows_per_seq = int(train_windows_per_seq)
         self.uni = torch.distributions.uniform.Uniform(-torch.ones(1),
             torch.ones(1))
 
@@ -97,6 +100,8 @@ class BaseDataset(Dataset):
         return sequences_dict['train'], sequences_dict[self.mode]
 
     def __getitem__(self, i):
+        if self._train and len(self.sequences) > 0:
+            i = i % len(self.sequences)
         mondict = self.load_seq(i)
         N_max = mondict['xs'].shape[0]
         if self._train: # random start
@@ -119,6 +124,8 @@ class BaseDataset(Dataset):
         return u, x
 
     def __len__(self):
+        if self._train:
+            return len(self.sequences) * self.train_windows_per_seq
         return len(self.sequences)
 
     def add_noise(self, u):
@@ -128,10 +135,11 @@ class BaseDataset(Dataset):
         noise[:, :, 3:6] = noise[:, :, 3:6] * self.imu_std[1]
 
         # bias repeatability (without in run bias stability)
-        b0 = self.uni.sample(u[:, 0].shape).to(u.device)
-        b0[:, :, :3] = b0[:, :, :3] * self.imu_b0[0]
-        b0[:, :, 3:6] =  b0[:, :, 3:6] * self.imu_b0[1]
-        u = u + noise + b0.transpose(1, 2)
+        b0 = torch.empty(u.shape[0], u.shape[2], device=u.device, dtype=u.dtype)
+        b0.uniform_(-1.0, 1.0)
+        b0[:, :3] = b0[:, :3] * self.imu_b0[0]
+        b0[:, 3:6] = b0[:, 3:6] * self.imu_b0[1]
+        u = u + noise + b0.unsqueeze(1)
         return u
 
     def init_train(self):
@@ -153,6 +161,11 @@ class BaseDataset(Dataset):
 
     def load_gt(self, i):
         return pload(self.predata_dir, self.sequences[i] + '_gt.p')
+
+    def _normalization_cache_path(self, train_seqs):
+        signature = ",".join(train_seqs) if train_seqs else "__empty__"
+        digest = hashlib.sha1(signature.encode("utf-8")).hexdigest()[:12]
+        return os.path.join(self.predata_dir, f"nf_{digest}.p")
 
     def init_normalize_factors(self, train_seqs):
         if os.path.exists(self.path_normalize_factors):
@@ -236,8 +249,20 @@ class EUROCDataset(BaseDataset):
     """
 
     def __init__(self, data_dir, predata_dir, train_seqs, val_seqs,
-                test_seqs, mode, N, min_train_freq, max_train_freq, dt=0.005):
-        super().__init__(predata_dir, train_seqs, val_seqs, test_seqs, mode, N, min_train_freq, max_train_freq, dt)
+                test_seqs, mode, N, min_train_freq, max_train_freq, dt=0.005,
+                train_windows_per_seq=16):
+        super().__init__(
+            predata_dir,
+            train_seqs,
+            val_seqs,
+            test_seqs,
+            mode,
+            N,
+            min_train_freq,
+            max_train_freq,
+            dt,
+            train_windows_per_seq,
+        )
         # convert raw data to pre loaded data
         self.read_data(data_dir)
         self.finalize_preprocessing()
@@ -325,9 +350,20 @@ class TUMVIDataset(BaseDataset):
     """
 
     def __init__(self, data_dir, predata_dir, train_seqs, val_seqs,
-                test_seqs, mode, N, min_train_freq, max_train_freq, dt=0.005):
-        super().__init__(predata_dir, train_seqs, val_seqs, test_seqs, mode, N,
-            min_train_freq, max_train_freq, dt)
+                test_seqs, mode, N, min_train_freq, max_train_freq, dt=0.005,
+                train_windows_per_seq=16):
+        super().__init__(
+            predata_dir,
+            train_seqs,
+            val_seqs,
+            test_seqs,
+            mode,
+            N,
+            min_train_freq,
+            max_train_freq,
+            dt,
+            train_windows_per_seq,
+        )
         # convert raw data to pre loaded data
         self.read_data(data_dir)
         self.finalize_preprocessing()
@@ -448,9 +484,20 @@ class BLACKBIRDDataset(BaseDataset):
     """
 
     def __init__(self, data_dir, predata_dir, train_seqs, val_seqs,
-                 test_seqs, mode, N, min_train_freq, max_train_freq, dt=0.01):
-        super().__init__(predata_dir, train_seqs, val_seqs, test_seqs, mode, N,
-            min_train_freq, max_train_freq, dt)
+                 test_seqs, mode, N, min_train_freq, max_train_freq, dt=0.01,
+                 train_windows_per_seq=16):
+        super().__init__(
+            predata_dir,
+            train_seqs,
+            val_seqs,
+            test_seqs,
+            mode,
+            N,
+            min_train_freq,
+            max_train_freq,
+            dt,
+            train_windows_per_seq,
+        )
         self.read_data(data_dir)
         self.finalize_preprocessing()
 
@@ -579,8 +626,20 @@ class KITTiDataset(BaseDataset):
     """
 
     def __init__(self, data_dir, predata_dir, train_seqs, val_seqs,
-                 test_seqs, mode, N, min_train_freq, max_train_freq, dt=0.005):
-        super().__init__(predata_dir, train_seqs, val_seqs, test_seqs, mode, N, min_train_freq, max_train_freq, dt)
+                 test_seqs, mode, N, min_train_freq, max_train_freq, dt=0.005,
+                 train_windows_per_seq=16):
+        super().__init__(
+            predata_dir,
+            train_seqs,
+            val_seqs,
+            test_seqs,
+            mode,
+            N,
+            min_train_freq,
+            max_train_freq,
+            dt,
+            train_windows_per_seq,
+        )
         # Convert raw data to pre-loaded data
         self.read_data(data_dir)
         self.finalize_preprocessing()
