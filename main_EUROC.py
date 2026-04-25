@@ -2,6 +2,7 @@ import os
 import argparse
 import sys
 import torch
+# torch.backends.cudnn.enabled = False
 import src.learning as lr
 import src.entrypoint_utils as ep
 import src.networks as sn

@@ -461,6 +461,109 @@ class TUMVIDataset(BaseDataset):
             pdump(mondict, self.predata_dir, sequence + "_gt.p")
 
 
+class UZHFPVDataset(BaseDataset):
+    """
+        Dataloader for the UZH FPV dataset text/ZIP exports.
+    """
+
+    def __init__(self, data_dir, predata_dir, train_seqs, val_seqs,
+                test_seqs, mode, N, min_train_freq, max_train_freq, dt=0.002,
+                train_windows_per_seq=16):
+        super().__init__(
+            predata_dir,
+            train_seqs,
+            val_seqs,
+            test_seqs,
+            mode,
+            N,
+            min_train_freq,
+            max_train_freq,
+            dt,
+            train_windows_per_seq,
+        )
+        self.read_data(data_dir)
+        self.finalize_preprocessing()
+        self.imu_std = torch.Tensor([8e-5, 1e-3]).float()
+        self.imu_b0 = torch.Tensor([1e-3, 1e-3]).float()
+
+    def read_data(self, data_dir):
+        missing = [
+            seq for seq in self.all_requested_sequences
+            if not os.path.exists(os.path.join(self.predata_dir, seq + ".p"))
+        ]
+        if not missing:
+            return
+
+        print("Start read_data, be patient please")
+        for sequence in self.all_requested_sequences:
+            if os.path.exists(os.path.join(self.predata_dir, sequence + ".p")):
+                continue
+            print("\nSequence name: " + sequence)
+            seq_dir = os.path.join(data_dir, sequence + "_snapdragon_with_gt")
+            path_imu = os.path.join(seq_dir, "imu.txt")
+            path_gt = os.path.join(seq_dir, "groundtruth.txt")
+            if not os.path.isfile(path_imu) or not os.path.isfile(path_gt):
+                raise FileNotFoundError(
+                    f"Missing UZH FPV files for {sequence!r}: {path_imu!r}, {path_gt!r}"
+                )
+
+            imu_raw = np.genfromtxt(path_imu, comments="#", dtype=np.float64)
+            gt_raw = np.genfromtxt(path_gt, comments="#", dtype=np.float64)
+            imu_raw = _ensure_2d(imu_raw)
+            gt_raw = _ensure_2d(gt_raw)
+            imu_raw = imu_raw[np.isfinite(imu_raw[:, 1])]
+            gt_raw = gt_raw[np.isfinite(gt_raw[:, 0])]
+
+            # IMU text: index, timestamp_s, gyro_xyz, accel_xyz.
+            imu_t = imu_raw[:, 1]
+            imu_data = imu_raw[:, 2:8]
+
+            # GT text: timestamp_s, position_xyz, quaternion_xyzw.
+            gt = np.zeros((gt_raw.shape[0], 11), dtype=np.float64)
+            gt[:, 0] = gt_raw[:, 0]
+            gt[:, 1:4] = gt_raw[:, 1:4]
+            gt[:, 4:8] = gt_raw[:, [7, 4, 5, 6]]
+            gt[:, 8:11] = np.gradient(gt[:, 1:4], gt[:, 0], axis=0)
+
+            t0 = np.max([gt[0, 0], imu_t[0]])
+            t_end = np.min([gt[-1, 0], imu_t[-1]])
+            idx0_imu = np.searchsorted(imu_t, t0)
+            idx0_gt = np.searchsorted(gt[:, 0], t0)
+            idx_end_imu = np.searchsorted(imu_t, t_end, "right")
+            idx_end_gt = np.searchsorted(gt[:, 0], t_end, "right")
+
+            imu_t = imu_t[idx0_imu:idx_end_imu]
+            imu_data = imu_data[idx0_imu:idx_end_imu]
+            gt = gt[idx0_gt:idx_end_gt]
+            gt = self.interpolate(gt, gt[:, 0], imu_t)
+            ts = imu_t
+
+            p_gt = gt[:, 1:4]
+            p_gt = p_gt - p_gt[0]
+            q_gt = SO3.qnorm(torch.Tensor(gt[:, 4:8]).double())
+            Rot_gt = SO3.from_quaternion(q_gt, ordering="wxyz")
+            v_gt = torch.tensor(gt[:, 8:11]).double()
+            imu = torch.Tensor(imu_data).double()
+
+            mtf = self.min_train_freq
+            dRot_ij = bmtm(Rot_gt[:-mtf], Rot_gt[mtf:])
+            dRot_ij = SO3.dnormalize(dRot_ij)
+            dxi_ij = SO3.log(dRot_ij).cpu()
+
+            mondict = {
+                "xs": dxi_ij.float(),
+                "us": imu.float(),
+            }
+            pdump(mondict, self.predata_dir, sequence + ".p")
+            mondict = {
+                "ts": ts,
+                "qs": q_gt.float(),
+                "vs": v_gt.float(),
+                "ps": torch.Tensor(p_gt).float(),
+            }
+            pdump(mondict, self.predata_dir, sequence + "_gt.p")
+
+
 class BLACKBIRDDataset(BaseDataset):
     """
     Dataloader for the Blackbird UAV dataset.

@@ -41,6 +41,10 @@ URLS = {
         "https://ijrr20-blackbird-dataset.s3-accelerate.amazonaws.com/BlackbirdDatasetData/",
         "http://blackbird-dataset.mit.edu/BlackbirdDatasetData/",
     ],
+    # UZH FPV dataset. Use text/ZIP files only; rosbag files are intentionally omitted.
+    "UZHFPV": [
+        "https://rpg.ifi.uzh.ch/datasets/",
+    ],
 }
 
 
@@ -92,6 +96,16 @@ DATASETS = {
         "mouse/yawForward/maxSpeed6p0",
         "thrice/yawConstant/maxSpeed6p0",
         "tiltedThrice/yawForward/maxSpeed6p0",
+    ],
+    "UZHFPV": [
+        "uzh-fpv-newer-versions/v3/indoor_forward_3_snapdragon_with_gt.zip",
+        "uzh-fpv-newer-versions/raw/indoor_forward_3.zip",
+        "uzh-fpv-newer-versions/v3/outdoor_forward_3_snapdragon_with_gt.zip",
+        "uzh-fpv-newer-versions/raw/outdoor_forward_3.zip",
+        "uzh-fpv-newer-versions/v3/outdoor_forward_5_snapdragon_with_gt.zip",
+        "uzh-fpv-newer-versions/raw/outdoor_forward_5.zip",
+        "uzh-fpv/calib/indoor_forward_calib_snapdragon.zip",
+        "uzh-fpv/calib/outdoor_forward_calib_snapdragon.zip",
     ],
 }
 
@@ -402,7 +416,7 @@ def main() -> int:
     parser.add_argument(
         "--sources",
         default="EUROC,TUMVI",
-        help="Comma-separated list: EUROC,TUMVI,KITTI,BLACKBIRD (default: EUROC,TUMVI)",
+        help="Comma-separated list: EUROC,TUMVI,KITTI,BLACKBIRD,UZHFPV (default: EUROC,TUMVI)",
     )
     parser.add_argument("--max-workers", type=int, default=2)
     parser.add_argument("--timeout-s", type=int, default=600)
@@ -421,7 +435,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    sources = [s.strip().upper() for s in args.sources.split(",") if s.strip()]
+    source_aliases = {
+        "UZH-FPV": "UZHFPV",
+        "UZH_FPV": "UZHFPV",
+    }
+    sources = [
+        source_aliases.get(s.strip().upper(), s.strip().upper())
+        for s in args.sources.split(",")
+        if s.strip()
+    ]
     unknown = [s for s in sources if s not in URLS]
     if unknown:
         print(f"Unknown sources: {unknown}. Valid: {sorted(URLS)}")
