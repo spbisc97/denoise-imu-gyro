@@ -128,6 +128,7 @@ Primary supported datasets:
 
 Dataset-specific behavior:
 - EuRoC stores plain `xs` orientation increments
+- EuRoC downloads are now hosted by ETH Research Collection as three large category ZIPs (`machine_hall.zip`, `vicon_room1.zip`, `vicon_room2.zip`) containing nested per-sequence ZIPs; `datasets_downloader.py --sources EUROC` handles this new layout and extracts into `data/EUROC/dataset/<sequence>/`
 - TUM-VI stores `xs` plus a validity mask
 - Blackbird uses official CSV exports under `<trajectory>/<yawMode>/<speed>/csv/`
 - Blackbird ground truth is converted from `body_frame` to the IMU frame using the static body-to-IMU rotation from the official upstream conversion utilities

@@ -20,9 +20,10 @@ Notes:
 
 
 URLS = {
-    # EuRoC MAV dataset (zip per sequence)
+    # EuRoC MAV dataset moved to ETH Research Collection in 2024. The source
+    # now provides large category archives that contain the per-sequence zips.
     "EUROC": [
-        "http://robotics.ethz.ch/~asl-datasets/ijrr_euroc_mav_dataset/",
+        "https://www.research-collection.ethz.ch/server/api/core/bitstreams/",
     ],
     # KITTI raw data (zip per drive) - optional
     "KITTI": [
@@ -49,19 +50,7 @@ URLS = {
 
 
 DATASETS = {
-    "EUROC": [
-        "machine_hall/MH_01_easy/MH_01_easy.zip",
-        "machine_hall/MH_02_easy/MH_02_easy.zip",
-        "machine_hall/MH_03_medium/MH_03_medium.zip",
-        "machine_hall/MH_04_difficult/MH_04_difficult.zip",
-        "machine_hall/MH_05_difficult/MH_05_difficult.zip",
-        "vicon_room1/V1_01_easy/V1_01_easy.zip",
-        "vicon_room1/V1_02_medium/V1_02_medium.zip",
-        "vicon_room1/V1_03_difficult/V1_03_difficult.zip",
-        "vicon_room2/V2_01_easy/V2_01_easy.zip",
-        "vicon_room2/V2_02_medium/V2_02_medium.zip",
-        "vicon_room2/V2_03_difficult/V2_03_difficult.zip",
-    ],
+    "EUROC": [],
     "KITTI": [
         "2011_09_26_drive_0017/2011_09_26_drive_0017_sync.zip",
         "2011_09_26_drive_0002/2011_09_26_drive_0002_sync.zip",
@@ -108,6 +97,39 @@ DATASETS = {
         "uzh-fpv/calib/outdoor_forward_calib_snapdragon.zip",
     ],
 }
+
+
+EUROC_ARCHIVES = [
+    {
+        "name": "machine_hall.zip",
+        "url": "https://www.research-collection.ethz.ch/server/api/core/bitstreams/7b2419c1-62b5-4714-b7f8-485e5fe3e5fe/content",
+        "sequences": [
+            "MH_01_easy",
+            "MH_02_easy",
+            "MH_03_medium",
+            "MH_04_difficult",
+            "MH_05_difficult",
+        ],
+    },
+    {
+        "name": "vicon_room1.zip",
+        "url": "https://www.research-collection.ethz.ch/server/api/core/bitstreams/02ecda9a-298f-498b-970c-b7c44334d880/content",
+        "sequences": [
+            "V1_01_easy",
+            "V1_02_medium",
+            "V1_03_difficult",
+        ],
+    },
+    {
+        "name": "vicon_room2.zip",
+        "url": "https://www.research-collection.ethz.ch/server/api/core/bitstreams/ea12bc01-3677-4b4c-853d-87c7870b8c44/content",
+        "sequences": [
+            "V2_01_easy",
+            "V2_02_medium",
+            "V2_03_difficult",
+        ],
+    },
+]
 
 
 BLACKBIRD_GLOBAL_FILES = [
@@ -254,6 +276,109 @@ def process_dataset(
     print(f"[ERROR] Failed to download/extract {dataset_path} from all configured URLs for {source}.")
 
 
+def process_euroc_archive(
+    archive: dict,
+    download_folder: str,
+    extract_folder: str,
+    *,
+    timeout_s: int,
+    retries: int,
+    backoff_s: float,
+    session: requests.Session,
+    verify_tls: bool,
+    keep_images: bool,
+) -> None:
+    missing_sequences = [
+        seq for seq in archive["sequences"]
+        if not _is_nonempty_dir(os.path.join(extract_folder, seq))
+    ]
+    if not missing_sequences:
+        print(f"[INFO] EuRoC archive already extracted: {archive['name']}. Skipping.")
+        return
+
+    archive_path = os.path.join(download_folder, archive["name"])
+    if not download_file(
+        archive["url"],
+        archive_path,
+        timeout_s=timeout_s,
+        retries=retries,
+        backoff_s=backoff_s,
+        session=session,
+        verify_tls=verify_tls,
+    ):
+        print(f"[ERROR] Failed to download EuRoC archive: {archive['name']}")
+        return
+
+    ensure_directory_exists(extract_folder)
+    inner_download_folder = os.path.join(download_folder, "sequences")
+    ensure_directory_exists(inner_download_folder)
+
+    try:
+        with zipfile.ZipFile(archive_path, "r") as outer_zip:
+            names = set(outer_zip.namelist())
+            for sequence in missing_sequences:
+                inner_name = next(
+                    (
+                        name for name in names
+                        if name.endswith(f"/{sequence}/{sequence}.zip")
+                        or name == f"{sequence}/{sequence}.zip"
+                    ),
+                    None,
+                )
+                if inner_name is None:
+                    print(f"[ERROR] Sequence zip not found in {archive['name']}: {sequence}")
+                    continue
+
+                inner_path = os.path.join(inner_download_folder, f"{sequence}.zip")
+                if not os.path.exists(inner_path) or os.path.getsize(inner_path) == 0:
+                    print(f"[INFO] Extracting nested EuRoC zip: {sequence}")
+                    with outer_zip.open(inner_name) as src, open(inner_path, "wb") as dst:
+                        while True:
+                            chunk = src.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            dst.write(chunk)
+
+                extract_file(inner_path, os.path.join(extract_folder, sequence), keep_images=keep_images)
+    except (zipfile.BadZipFile, FileNotFoundError) as e:
+        print(f"[ERROR] Failed to process EuRoC archive {archive_path}: {e}")
+
+
+def process_euroc_datasets(
+    download_folder: str,
+    extract_folder: str,
+    *,
+    concurrent_downloads: int,
+    timeout_s: int,
+    retries: int,
+    backoff_s: float,
+    session: requests.Session,
+    verify_tls: bool,
+    keep_images: bool,
+) -> None:
+    with ThreadPoolExecutor(max_workers=concurrent_downloads) as executor:
+        futures = [
+            executor.submit(
+                process_euroc_archive,
+                archive,
+                download_folder,
+                extract_folder,
+                timeout_s=timeout_s,
+                retries=retries,
+                backoff_s=backoff_s,
+                session=session,
+                verify_tls=verify_tls,
+                keep_images=keep_images,
+            )
+            for archive in EUROC_ARCHIVES
+        ]
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as e:
+                print(f"[ERROR] Exception occurred: {e}")
+
+
 def _download_blackbird_file(
     base_url: str,
     rel_path: str,
@@ -356,6 +481,19 @@ def download_and_extract_datasets(
         ensure_directory_exists(extract_folder)
 
         print(f"[INFO] Processing datasets for {source}...")
+        if source == "EUROC":
+            process_euroc_datasets(
+                download_folder,
+                extract_folder,
+                concurrent_downloads=concurrent_downloads,
+                timeout_s=timeout_s,
+                retries=retries,
+                backoff_s=backoff_s,
+                session=session,
+                verify_tls=verify_tls,
+                keep_images=keep_images,
+            )
+            continue
         if source == "BLACKBIRD":
             if keep_images:
                 print("[WARN] --images is not supported for BLACKBIRD in this downloader; downloading minimal CSV/GT files only.")
