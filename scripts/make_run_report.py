@@ -26,6 +26,7 @@ class DatasetConfig:
     N: int
     min_train_freq: int
     max_train_freq: int
+    default_sequences: tuple[str, ...] = ()
 
 
 DATASET_CONFIGS = {
@@ -56,6 +57,20 @@ DATASET_CONFIGS = {
         min_train_freq=8,
         max_train_freq=16,
     ),
+    "UZHFPV": DatasetConfig(
+        dataset_class=ds.UZHFPVDataset,
+        default_data_dir=os.path.join(BASE_DIR, "data", "UZHFPV", "dataset"),
+        predata_dir=os.path.join(BASE_DIR, "data", "UZHFPV"),
+        dt=0.002,
+        N=8192,
+        min_train_freq=16,
+        max_train_freq=32,
+        default_sequences=(
+            "indoor_forward_3",
+            "outdoor_forward_3",
+            "outdoor_forward_5",
+        ),
+    ),
 }
 
 
@@ -78,8 +93,6 @@ def discover_sequences(run_dir):
             continue
         sequences.append(rel_dir)
     sequences.sort()
-    if not sequences:
-        raise FileNotFoundError(f"No sequence results found under {run_dir!r}")
     return sequences
 
 
@@ -173,15 +186,19 @@ def plot_rmse_summary(metrics, out_path, dataset_name):
     width = 0.25
 
     raw = [m["raw_rmse_deg"] for m in metrics]
-    net = [m["net_rmse_deg"] for m in metrics]
+    net = [m["net_rmse_deg"] for m in metrics if m["net_rmse_deg"] is not None]
     cal = [m["cal_rmse_deg"] for m in metrics if m["cal_rmse_deg"] is not None]
+    has_net = len(net) == len(metrics)
     has_cal = len(cal) == len(metrics)
 
     fig, (ax_full, ax_zoom) = plt.subplots(1, 2, figsize=(16, 6), width_ratios=[1.25, 1.0])
-    ax_full.bar(x - width, raw, width=width, color="#c44e52", label="Raw IMU")
-    ax_full.bar(x, net, width=width, color="#4c72b0", label="CNN corrected")
+    raw_offset = -width if has_net and has_cal else (-width / 2 if has_net or has_cal else 0)
+    ax_full.bar(x + raw_offset, raw, width=width, color="#c44e52", label="Raw IMU")
+    if has_net:
+        ax_full.bar(x, net, width=width, color="#4c72b0", label="CNN corrected")
     if has_cal:
-        ax_full.bar(x + width, [m["cal_rmse_deg"] for m in metrics], width=width, color="#55a868", label="Static calib")
+        cal_offset = width if has_net else width / 2
+        ax_full.bar(x + cal_offset, [m["cal_rmse_deg"] for m in metrics], width=width, color="#55a868", label="Static calib")
     ax_full.set_title(f"{dataset_name} orientation RMSE")
     ax_full.set_ylabel("Geodesic RMSE (deg)")
     ax_full.set_xticks(x)
@@ -189,10 +206,12 @@ def plot_rmse_summary(metrics, out_path, dataset_name):
     ax_full.legend(frameon=True)
     ax_full.grid(axis="y", alpha=0.35)
 
-    zoom_width = 0.35 if has_cal else 0.5
-    ax_zoom.bar(x - (zoom_width / 2 if has_cal else 0), net, width=zoom_width, color="#4c72b0", label="CNN corrected")
+    zoom_width = 0.35 if has_net and has_cal else 0.5
+    if has_net:
+        ax_zoom.bar(x - (zoom_width / 2 if has_cal else 0), net, width=zoom_width, color="#4c72b0", label="CNN corrected")
     if has_cal:
-        ax_zoom.bar(x + zoom_width / 2, [m["cal_rmse_deg"] for m in metrics], width=zoom_width, color="#55a868", label="Static calib")
+        cal_offset = zoom_width / 2 if has_net else 0
+        ax_zoom.bar(x + cal_offset, [m["cal_rmse_deg"] for m in metrics], width=zoom_width, color="#55a868", label="Static calib")
     ax_zoom.set_title("Zoom on corrected methods")
     ax_zoom.set_ylabel("Geodesic RMSE (deg)")
     ax_zoom.set_xticks(x)
@@ -210,15 +229,18 @@ def plot_improvement_summary(metrics, out_path):
     labels = [m["sequence"] for m in metrics]
     x = np.arange(len(labels))
     width = 0.32
-    net_gain = [m["net_gain_pct"] for m in metrics]
+    net_gain = [m["net_gain_pct"] for m in metrics if m["net_gain_pct"] is not None]
     cal_gain = [m["cal_gain_pct"] for m in metrics]
+    has_net = len(net_gain) == len(metrics)
     has_cal = all(value is not None for value in cal_gain)
 
     fig, ax = plt.subplots(figsize=(13, 6))
     ax.axhline(0.0, color="black", linewidth=1.0, linestyle="--")
-    ax.bar(x - (width / 2 if has_cal else 0), net_gain, width=width, color="#4c72b0", label="CNN vs raw")
+    if has_net:
+        ax.bar(x - (width / 2 if has_cal else 0), net_gain, width=width, color="#4c72b0", label="CNN vs raw")
     if has_cal:
-        ax.bar(x + width / 2, cal_gain, width=width, color="#55a868", label="Static calib vs raw")
+        cal_offset = width / 2 if has_net else 0
+        ax.bar(x + cal_offset, cal_gain, width=width, color="#55a868", label="Static calib vs raw")
     ax.set_title("Relative improvement over raw IMU")
     ax.set_ylabel("RMSE reduction (%)")
     ax.set_xticks(x)
@@ -235,12 +257,13 @@ def plot_improvement_summary(metrics, out_path):
 def plot_hardest_sequence(detail, out_path, window_s, dt):
     t_min = detail["time_min"] - detail["time_min"][0]
     raw = rolling_rms(detail["raw_angle_deg"], int(window_s / dt))
-    net = rolling_rms(detail["net_angle_deg"], int(window_s / dt))
+    net = rolling_rms(detail["net_angle_deg"], int(window_s / dt)) if detail["net_angle_deg"] is not None else None
     cal = rolling_rms(detail["cal_angle_deg"], int(window_s / dt)) if detail["cal_angle_deg"] is not None else None
 
     fig, ax = plt.subplots(figsize=(13, 5.5))
     ax.plot(t_min, raw, color="#c44e52", linewidth=1.7, label="Raw IMU")
-    ax.plot(t_min, net, color="#4c72b0", linewidth=2.0, label="CNN corrected")
+    if net is not None:
+        ax.plot(t_min, net, color="#4c72b0", linewidth=2.0, label="CNN corrected")
     if cal is not None:
         ax.plot(t_min, cal, color="#55a868", linewidth=1.8, label="Static calib")
     ax.set_title(f"Rolling orientation error on hardest sequence: {detail['sequence']}")
@@ -254,6 +277,8 @@ def plot_hardest_sequence(detail, out_path, window_s, dt):
 
 
 def plot_correction_summary(metrics, out_path):
+    if any(m["net_rmse_deg"] is None for m in metrics):
+        return
     labels = [m["sequence"] for m in metrics]
     corr = np.array([[m["corr_rms_x_deg_s"], m["corr_rms_y_deg_s"], m["corr_rms_z_deg_s"]] for m in metrics])
     x = np.arange(len(labels))
@@ -294,32 +319,41 @@ def write_metrics_csv(metrics, out_path):
 
 
 def write_summary_md(metrics, detail, out_path):
-    best = min(metrics, key=lambda row: row["net_rmse_deg"])
+    has_net = all(row["net_rmse_deg"] is not None for row in metrics)
+    best = min(metrics, key=lambda row: row["net_rmse_deg"]) if has_net else None
     hardest = max(metrics, key=lambda row: row["raw_rmse_deg"])
     avg_raw = np.mean([row["raw_rmse_deg"] for row in metrics])
-    avg_net = np.mean([row["net_rmse_deg"] for row in metrics])
-    gains = [row["net_gain_pct"] for row in metrics]
+    avg_net = np.mean([row["net_rmse_deg"] for row in metrics]) if has_net else None
+    gains = [row["net_gain_pct"] for row in metrics if row["net_gain_pct"] is not None]
     cal_values = [row["cal_rmse_deg"] for row in metrics if row["cal_rmse_deg"] is not None]
-    cal_beats_net = sum(
-        1
-        for row in metrics
-        if row["cal_rmse_deg"] is not None and row["cal_rmse_deg"] < row["net_rmse_deg"]
+    cal_beats_net = (
+        sum(
+            1
+            for row in metrics
+            if row["cal_rmse_deg"] is not None and row["cal_rmse_deg"] < row["net_rmse_deg"]
+        )
+        if has_net
+        else 0
     )
 
     lines = [
         "# Run Summary",
         "",
         f"- Average raw IMU RMSE: `{avg_raw:.3f} deg`",
-        f"- Average CNN-corrected RMSE: `{avg_net:.3f} deg`",
-        f"- Mean RMSE reduction: `{np.mean(gains):.1f}%`",
-        f"- Best corrected sequence: `{best['sequence']}` at `{best['net_rmse_deg']:.3f} deg`",
         f"- Hardest raw sequence: `{hardest['sequence']}` at `{hardest['raw_rmse_deg']:.3f} deg`",
         f"- Hardest-sequence report plot: `{detail['sequence']}`",
         "",
     ]
+    if has_net:
+        lines.insert(3, f"- Average CNN-corrected RMSE: `{avg_net:.3f} deg`")
+        lines.insert(4, f"- Mean CNN RMSE reduction: `{np.mean(gains):.1f}%`")
+        lines.insert(5, f"- Best CNN-corrected sequence: `{best['sequence']}` at `{best['net_rmse_deg']:.3f} deg`")
     if cal_values:
-        lines.insert(4, f"- Average static-calibration RMSE: `{np.mean(cal_values):.3f} deg`")
-        lines.insert(5, f"- Static calibration beats the CNN on `{cal_beats_net}/{len(metrics)}` test sequences")
+        insert_at = 6 if has_net else 3
+        lines.insert(insert_at, f"- Average static-calibration RMSE: `{np.mean(cal_values):.3f} deg`")
+        lines.insert(insert_at + 1, f"- Mean static-calibration RMSE reduction: `{np.mean([row['cal_gain_pct'] for row in metrics if row['cal_gain_pct'] is not None]):.1f}%`")
+        if has_net:
+            lines.insert(insert_at + 2, f"- Static calibration beats the CNN on `{cal_beats_net}/{len(metrics)}` test sequences")
     with open(out_path, "w") as f:
         f.write("\n".join(lines))
 
@@ -334,6 +368,11 @@ def main():
 
     prepare_style()
     sequences = discover_sequences(run_dir)
+    has_net_results = bool(sequences)
+    if not sequences:
+        sequences = list(config.default_sequences)
+    if not sequences:
+        raise FileNotFoundError(f"No sequence results found under {run_dir!r}")
     dataset = build_dataset(config, data_dir, sequences)
     calib_path = os.path.join(run_dir, "calibrated_imu.p")
     calib = pload(calib_path) if os.path.isfile(calib_path) else None
@@ -343,16 +382,26 @@ def main():
     for index, sequence in enumerate(dataset.sequences):
         raw_us, _ = dataset[index]
         gt = dataset.load_gt(index)
-        net_us = pload(run_dir, sequence, "results.p")["hat_xs"]
+        net_path = os.path.join(run_dir, sequence, "results.p")
+        net_us = pload(net_path)["hat_xs"] if os.path.isfile(net_path) else None
 
-        n = net_us.shape[0]
+        n = net_us.shape[0] if net_us is not None else min(raw_us.shape[0], gt["qs"].shape[0])
         gt_qs = as_tensor(gt["qs"][:n])
         gt_rots = SO3.from_quaternion(gt_qs).float()
         raw_rots = integrate_gyro(gt_qs, raw_us[:n, :3], config.dt)
-        net_rots = integrate_gyro(gt_qs, net_us[:n, :3], config.dt)
 
         raw_err_vec, raw_angle = rotation_errors(gt_rots, raw_rots)
-        net_err_vec, net_angle = rotation_errors(gt_rots, net_rots)
+        net_err_vec = None
+        net_angle = None
+        net_rmse = None
+        net_gain = None
+        corr_rms = [None, None, None]
+        if net_us is not None:
+            net_rots = integrate_gyro(gt_qs, net_us[:n, :3], config.dt)
+            net_err_vec, net_angle = rotation_errors(gt_rots, net_rots)
+            net_rmse = float(np.sqrt(np.mean(net_angle ** 2)))
+            corr = as_numpy(as_tensor(raw_us[:n, :3]) - as_tensor(net_us[:n, :3])) * (180.0 / np.pi)
+            corr_rms = np.sqrt(np.mean(corr ** 2, axis=0))
 
         cal_angle = None
         cal_rmse = None
@@ -365,9 +414,8 @@ def main():
             cal_gain = 100.0 * (1.0 - (cal_rmse / float(np.sqrt(np.mean(raw_angle ** 2)))))
 
         raw_rmse = float(np.sqrt(np.mean(raw_angle ** 2)))
-        net_rmse = float(np.sqrt(np.mean(net_angle ** 2)))
-        corr = as_numpy(as_tensor(raw_us[:n, :3]) - as_tensor(net_us[:n, :3])) * (180.0 / np.pi)
-        corr_rms = np.sqrt(np.mean(corr ** 2, axis=0))
+        if net_rmse is not None:
+            net_gain = 100.0 * (1.0 - (net_rmse / raw_rmse))
 
         metrics.append(
             {
@@ -375,11 +423,11 @@ def main():
                 "raw_rmse_deg": raw_rmse,
                 "net_rmse_deg": net_rmse,
                 "cal_rmse_deg": cal_rmse,
-                "net_gain_pct": 100.0 * (1.0 - (net_rmse / raw_rmse)),
+                "net_gain_pct": net_gain,
                 "cal_gain_pct": cal_gain,
-                "corr_rms_x_deg_s": float(corr_rms[0]),
-                "corr_rms_y_deg_s": float(corr_rms[1]),
-                "corr_rms_z_deg_s": float(corr_rms[2]),
+                "corr_rms_x_deg_s": None if corr_rms[0] is None else float(corr_rms[0]),
+                "corr_rms_y_deg_s": None if corr_rms[1] is None else float(corr_rms[1]),
+                "corr_rms_z_deg_s": None if corr_rms[2] is None else float(corr_rms[2]),
             }
         )
         details.append(
@@ -411,10 +459,16 @@ def main():
 
     print(f"report_ok {out_dir}")
     for row in metrics:
-        print(
-            "sequence={sequence} raw_rmse_deg={raw_rmse_deg:.3f} "
-            "net_rmse_deg={net_rmse_deg:.3f} net_gain_pct={net_gain_pct:.1f}".format(**row)
-        )
+        if has_net_results:
+            print(
+                "sequence={sequence} raw_rmse_deg={raw_rmse_deg:.3f} "
+                "net_rmse_deg={net_rmse_deg:.3f} net_gain_pct={net_gain_pct:.1f}".format(**row)
+            )
+        else:
+            print(
+                "sequence={sequence} raw_rmse_deg={raw_rmse_deg:.3f} "
+                "cal_rmse_deg={cal_rmse_deg:.3f} cal_gain_pct={cal_gain_pct:.1f}".format(**row)
+            )
 
 
 if __name__ == "__main__":
