@@ -135,6 +135,7 @@ def main():
         default_data_dir=data_dir,
         default_address=address,
         dataset_label="Blackbird",
+        default_static_calib_path=os.path.join(base_dir, "data/static_calibrations/BLACKBIRD/gyro.yaml"),
     )
     args = parser.parse_args()
 
@@ -167,7 +168,22 @@ def main():
             dt=train_params['loss']['dt'],
         )
         ep.apply_calib_args_for_train(learning_process, args)
+        if args.calib_source == "none":
+            learning_process.init_from_calib_baseline = False
         learning_process.train(dataset_class, dataset_params, train_params)
+        return 0
+
+    if mode == 'calibrate':
+        learning_process = lr.GyroLearningBasedProcessing(
+            train_params['res_dir'],
+            train_params['tb_dir'],
+            net_class,
+            net_params,
+            address=None,
+            dt=train_params['loss']['dt'],
+        )
+        ep.apply_calib_args_for_train(learning_process, args)
+        learning_process.compute_static_calibration(dataset_class, dataset_params, train_params)
         return 0
 
     learning_process = lr.GyroLearningBasedProcessing(

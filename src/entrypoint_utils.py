@@ -14,8 +14,9 @@ def add_common_entrypoint_args(
     default_data_dir: str,
     default_address: str,
     dataset_label: str,
+    default_static_calib_path: str | None = None,
 ) -> None:
-    parser.add_argument("--mode", choices=["auto", "train", "test", "smoke"], default="auto")
+    parser.add_argument("--mode", choices=["auto", "train", "test", "smoke", "calibrate"], default="auto")
     parser.add_argument("--data-dir", default=default_data_dir)
     parser.add_argument("--address", default=default_address, help="Weights/run to test: 'last' or a path")
 
@@ -120,18 +121,36 @@ def add_common_entrypoint_args(
     parser.add_argument("--calib-steps", type=int, default=300, help="Steps for calibrated-IMU GD baseline")
     parser.add_argument("--calib-lr", type=float, default=5e-2, help="LR for calibrated-IMU GD baseline")
     parser.add_argument(
+        "--calib-source",
+        choices=["static", "fit", "none"],
+        default="static",
+        help=(
+            "Training calibration source: load/save a persistent YAML static calibration, "
+            "fit a run-local calibration, or disable static calibration."
+        ),
+    )
+    parser.add_argument(
+        "--static-calib-path",
+        default=default_static_calib_path,
+        help=f"Persistent {dataset_label} static calibration YAML path.",
+    )
+    parser.add_argument(
         "--calib-init",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help=(
-            "Before training, fit the calibrated-IMU baseline and use it to initialize the model calibration params."
+            "Before training, fit a static 3x3 gyro matrix plus bias on the train split "
+            "and use it to initialize the model calibration params."
         ),
     )
     parser.add_argument(
         "--calib-freeze",
         action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Freeze calibration params (gyro_Rot/bias) after calib-init during training.",
+        default=True,
+        help=(
+            "Freeze calibration params (gyro_Rot/bias) after calib-init during training, "
+            "so the CNN learns only residual corrections."
+        ),
     )
 
 
@@ -178,6 +197,8 @@ def apply_common_entrypoint_overrides(
 def apply_calib_args_for_train(process: Any, args: argparse.Namespace) -> None:
     process.init_from_calib_baseline = bool(args.calib_init)
     process.freeze_calib_params = bool(args.calib_freeze)
+    process.calib_source = args.calib_source
+    process.static_calib_path = args.static_calib_path
     process.calib_baseline_steps = int(args.calib_steps)
     process.calib_baseline_lr = float(args.calib_lr)
 
