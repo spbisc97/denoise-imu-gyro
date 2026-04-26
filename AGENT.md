@@ -205,12 +205,19 @@ EuRoC and TUM-VI also support:
 - scheduler selection
 - sequence overrides
 - calibrated-IMU baseline toggles
-- calibrated-IMU initialization / freezing
+- calibrated-IMU initialization / freezing; by default training fits a static
+  gyro calibration `(I + dC) * gyro + b` on the train split once, stores it
+  in `data/static_calibrations/<DATASET>/gyro.yaml`, initializes `gyro_Rot` and
+  `gyro_bias`, and freezes them so the CNN learns residuals
 - `--no-show`
 
 Calibrated-IMU workflow lives in `src/learning.py`:
 - optional test-time comparison baseline
-- optional train-time initialization of learned calibration params
+- default train-time initialization of learned calibration params; use
+  `--no-calib-init` or `--no-calib-freeze` for ablations
+- `--mode calibrate` recomputes and saves the persistent static calibration
+- `--calib-source {static,fit,none}` selects persistent YAML, run-local fit,
+  or no static initialization
 
 ## Outputs
 
