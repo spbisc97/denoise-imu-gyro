@@ -636,13 +636,24 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         }
         calib = None
         if getattr(self, "enable_calibrated_imu_baseline", False):
-            calib = self.fit_calibrated_imu(
-                self.dataset_class,
-                self.dataset_params,
-                self.train_params,
-                n_steps=int(self.calib_baseline_steps),
-                lr=float(self.calib_baseline_lr),
-            )
+            if self.calib_source == "static":
+                calib = self.load_or_fit_static_calib(
+                    self.dataset_class,
+                    self.dataset_params,
+                    self.train_params,
+                )
+            elif self.calib_source == "fit":
+                calib = self.fit_calibrated_imu(
+                    self.dataset_class,
+                    self.dataset_params,
+                    self.train_params,
+                    n_steps=int(self.calib_baseline_steps),
+                    lr=float(self.calib_baseline_lr),
+                )
+            elif self.calib_source == "none":
+                calib = None
+            else:
+                raise ValueError(f"Unknown calib_source={self.calib_source!r}")
 
         self.to_open_vins(dataset)
         for i, seq in enumerate(dataset.sequences):

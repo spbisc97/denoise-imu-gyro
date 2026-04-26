@@ -42,13 +42,11 @@ dataset_params = {
     # set train, val and test sequence
     'train_seqs': [
         'MH_01_easy',
-        'MH_02_easy',
         'MH_03_medium',
         'MH_05_difficult',
         'V1_02_medium',
         'V2_01_easy',
         'V2_03_difficult',
-        'V1_03_difficult',
         ],
     'val_seqs': [
         'MH_01_easy',

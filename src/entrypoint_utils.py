@@ -23,7 +23,7 @@ def add_common_entrypoint_args(
     parser.add_argument(
         "--calib-baseline",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Include 'calibrated IMU' (static GD) baseline on test runs.",
     )
     parser.add_argument(
@@ -205,6 +205,8 @@ def apply_calib_args_for_train(process: Any, args: argparse.Namespace) -> None:
 
 def apply_calib_args_for_test(process: Any, args: argparse.Namespace) -> None:
     process.enable_calibrated_imu_baseline = bool(args.calib_baseline)
+    process.calib_source = args.calib_source
+    process.static_calib_path = args.static_calib_path
     process.calib_baseline_steps = int(args.calib_steps)
     process.calib_baseline_lr = float(args.calib_lr)
     process.show_plots = not bool(args.no_show)

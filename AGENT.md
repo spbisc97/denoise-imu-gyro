@@ -212,7 +212,8 @@ EuRoC and TUM-VI also support:
 - `--no-show`
 
 Calibrated-IMU workflow lives in `src/learning.py`:
-- optional test-time comparison baseline
+- opt-in test-time comparison baseline via `--calib-baseline`; plain
+  `--mode test` does not fit calibration
 - default train-time initialization of learned calibration params; use
   `--no-calib-init` or `--no-calib-freeze` for ablations
 - `--mode calibrate` recomputes and saves the persistent static calibration
