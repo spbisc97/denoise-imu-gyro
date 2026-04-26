@@ -12,12 +12,11 @@ from termcolor import cprint
 import numpy as np
 import os
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 from src.utils import pload, pdump, yload, ydump, mkdir, bmv
 from src.utils import bmtm, bmtv, bmmt
 from datetime import datetime
 from src.lie_algebra import SO3, CPUSO3
-import itertools
 
 
 class LearningBasedProcessing:
@@ -365,6 +364,8 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         self.calib_baseline_lr = 5e-2
         self.init_from_calib_baseline = False
         self.freeze_calib_params = False
+        self.calib_source = "static"
+        self.static_calib_path = None
 
     def apply_calib_to_net(self, calib):
         """Initialize the net's static calibration parameters from a calib dict."""
@@ -380,17 +381,121 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
             if hasattr(self.net, "gyro_bias"):
                 self.net.gyro_bias.requires_grad_(False)
 
+    @staticmethod
+    def _calib_to_yaml(calib):
+        return {
+            "dC": calib["dC"].detach().cpu().tolist(),
+            "b": calib["b"].detach().cpu().tolist(),
+        }
+
+    @staticmethod
+    def _calib_from_yaml(path):
+        data = yload(path)
+        return {
+            "dC": torch.tensor(data["dC"], dtype=torch.float32),
+            "b": torch.tensor(data["b"], dtype=torch.float32),
+        }
+
+    def load_or_fit_static_calib(self, dataset_class, dataset_params, train_params):
+        if not self.static_calib_path:
+            raise ValueError("static_calib_path is required when calib_source='static'")
+
+        if os.path.isfile(self.static_calib_path):
+            print(f"[calib] loading static calibration: {self.static_calib_path}")
+            return self._calib_from_yaml(self.static_calib_path)
+
+        print(f"[calib] static calibration not found, fitting once: {self.static_calib_path}")
+        calib = self.fit_calibrated_imu(
+            dataset_class,
+            dataset_params,
+            train_params,
+            n_steps=int(self.calib_baseline_steps),
+            lr=float(self.calib_baseline_lr),
+        )
+        ydump(self._calib_to_yaml(calib), self.static_calib_path)
+        print(f"[calib] saved static calibration: {self.static_calib_path}")
+        return calib
+
+    def compute_static_calibration(self, dataset_class, dataset_params, train_params):
+        calib = self.fit_calibrated_imu(
+            dataset_class,
+            dataset_params,
+            train_params,
+            n_steps=int(self.calib_baseline_steps),
+            lr=float(self.calib_baseline_lr),
+        )
+        if self.static_calib_path:
+            ydump(self._calib_to_yaml(calib), self.static_calib_path)
+            print(f"[calib] saved static calibration: {self.static_calib_path}")
+        return calib
+
     def train(self, dataset_class, dataset_params, train_params):
         if self.init_from_calib_baseline:
-            calib = self.fit_calibrated_imu(
-                dataset_class,
-                dataset_params,
-                train_params,
-                n_steps=int(self.calib_baseline_steps),
-                lr=float(self.calib_baseline_lr),
-            )
-            self.apply_calib_to_net(calib)
+            if self.calib_source == "static":
+                calib = self.load_or_fit_static_calib(dataset_class, dataset_params, train_params)
+            elif self.calib_source == "fit":
+                calib = self.compute_static_calibration(dataset_class, dataset_params, train_params)
+            elif self.calib_source == "none":
+                calib = None
+            else:
+                raise ValueError(f"Unknown calib_source={self.calib_source!r}")
+            if calib is None:
+                self.freeze_calib_params = False
+            else:
+                ydump(self._calib_to_yaml(calib), self.address, "static_calibration_used.yaml")
+                self.apply_calib_to_net(calib)
         return super().train(dataset_class, dataset_params, train_params)
+
+    def _calibration_windows(self, dataset, *, sequences, window_size, stride, target):
+        us_windows = []
+        xs_windows = []
+        mask_target = "mask" in str(target)
+
+        for seq in sequences:
+            data = pload(dataset.predata_dir, seq + ".p")
+            us = data["us"]
+            xs = data["xs"]
+            n_max = min(us.shape[0], xs.shape[0])
+            if n_max < window_size:
+                continue
+
+            starts = list(range(0, n_max - window_size + 1, stride))
+            tail_start = n_max - window_size
+            if starts[-1] != tail_start:
+                starts.append(tail_start)
+
+            for start in starts:
+                end = min(start + window_size, n_max)
+                u = us[start:end]
+                x = xs[start:end]
+                if u.shape[0] < dataset.max_train_freq:
+                    continue
+                usable = u.shape[0] - (u.shape[0] % dataset.max_train_freq)
+                u = u[:usable]
+                x = x[:usable]
+                if mask_target and x.shape[-1] > 3 and torch.count_nonzero(x[:, 3] > 0) == 0:
+                    continue
+                us_windows.append(u)
+                xs_windows.append(x)
+
+        if not us_windows:
+            raise ValueError("No valid calibration windows were built from the selected sequences.")
+        return TensorDataset(torch.stack(us_windows), torch.stack(xs_windows))
+
+    @staticmethod
+    def _evaluate_calib_loss(model, criterion, dataloader, device):
+        model.eval()
+        values = []
+        with torch.no_grad():
+            for us, xs in dataloader:
+                us = us.to(device)
+                xs = xs.to(device)
+                loss = criterion(xs, model(us))
+                value = float(loss.detach().cpu())
+                if np.isfinite(value):
+                    values.append(value)
+        model.train()
+        return float(np.mean(values)) if values else float("inf")
 
     def fit_calibrated_imu(self, dataset_class, dataset_params, train_params, *, n_steps=300, lr=5e-2):
         """
@@ -403,19 +508,42 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
 
         out_path = os.path.join(self.address, "calibrated_imu.p")
         out_yaml = os.path.join(self.address, "calibrated_imu.yaml")
+        report_yaml = os.path.join(self.address, "calibrated_imu_report.yaml")
         if os.path.exists(out_path):
             return pload(out_path)
 
-        # Build random-window training loader (same idea as main training).
+        # Build deterministic calibration windows. Calibration is run rarely, so
+        # prefer repeatability and full coverage over stochastic speed.
         dataset_train = dataset_class(**dataset_params, mode='train')
-        dataset_train.init_train()
+        target = train_params["loss"].get("target", "")
+        window_size = int(dataset_params.get("N", dataset_train.N))
+        stride = max(dataset_train.max_train_freq, window_size // 2)
+        train_windows = self._calibration_windows(
+            dataset_train,
+            sequences=dataset_train.train_sequences,
+            window_size=window_size,
+            stride=stride,
+            target=target,
+        )
 
         dataloader_params = dict(train_params.get('dataloader', {}))
         dataloader_params.setdefault('batch_size', 10)
-        dataloader_params.setdefault('shuffle', True)
+        dataloader_params["shuffle"] = False
         dataloader_params.setdefault('num_workers', 0)
         dataloader_params.setdefault('pin_memory', False)
-        dataloader = DataLoader(dataset_train, **dataloader_params)
+        train_loader = DataLoader(train_windows, **dataloader_params)
+
+        val_loader = None
+        val_sequences = list(getattr(dataset_train, "val_sequences", []))
+        if val_sequences:
+            val_windows = self._calibration_windows(
+                dataset_train,
+                sequences=val_sequences,
+                window_size=window_size,
+                stride=stride,
+                target=target,
+            )
+            val_loader = DataLoader(val_windows, **dataloader_params)
 
         Loss = train_params['loss_class']
         loss_params = train_params['loss']
@@ -423,33 +551,82 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
 
         model = CalibratedIMUNet().to(self.device)
         optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=max(1, int(n_steps)),
+            eta_min=max(float(lr) * 0.02, 1e-5),
+        )
 
-        it = itertools.cycle(dataloader)
+        best_loss = float("inf")
+        best_state = None
+        best_step = 0
+        last_train_loss = float("inf")
+        eval_every = max(1, min(50, int(n_steps)))
         model.train()
-        for step in range(1, n_steps + 1):
-            us, xs = next(it)
-            # Calibrated-IMU baseline optimizes static parameters; do not inject
-            # artificial noise here to keep it comparable to evaluation.
-            us = us.to(self.device)
-            xs = xs.to(self.device)
-            hat_xs = model(us)
-            loss = criterion(xs, hat_xs)
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
+        step = 0
+        while step < n_steps:
+            for us, xs in train_loader:
+                step += 1
+                # Calibrated-IMU baseline optimizes static parameters; do not
+                # inject artificial noise here to keep it comparable to eval.
+                us = us.to(self.device)
+                xs = xs.to(self.device)
+                hat_xs = model(us)
+                loss = criterion(xs, hat_xs)
+                if not torch.isfinite(loss) or not loss.requires_grad:
+                    continue
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
+                scheduler.step()
+                last_train_loss = float(loss.detach().cpu())
 
-            if step % 50 == 0:
-                print(f"[calib] step={step}/{n_steps} loss={loss.detach().cpu().item():.6f}")
+                if step % eval_every == 0 or step == n_steps:
+                    score = (
+                        self._evaluate_calib_loss(model, criterion, val_loader, self.device)
+                        if val_loader is not None
+                        else self._evaluate_calib_loss(model, criterion, train_loader, self.device)
+                    )
+                    if score < best_loss:
+                        best_loss = score
+                        best_step = step
+                        best_state = {
+                            "dC": model.dC.detach().cpu().clone(),
+                            "b": model.b.detach().cpu().clone(),
+                        }
+                    print(
+                        f"[calib] step={step}/{n_steps} "
+                        f"train_loss={last_train_loss:.6f} score={score:.6f} best={best_loss:.6f}"
+                    )
+                if step >= n_steps:
+                    break
+
+        if best_state is not None:
+            with torch.no_grad():
+                model.dC.copy_(best_state["dC"].to(model.dC.device))
+                model.b.copy_(best_state["b"].to(model.b.device))
 
         calib = {
             "dC": model.dC.detach().cpu(),
             "b": model.b.detach().cpu(),
         }
         pdump(calib, out_path)
-        try:
-            ydump({k: v.tolist() for k, v in calib.items()}, out_yaml)
-        except Exception:
-            pass
+        ydump(self._calib_to_yaml(calib), out_yaml)
+        ydump(
+            {
+                "best_step": best_step,
+                "best_score": best_loss,
+                "final_train_loss": last_train_loss,
+                "n_steps": int(n_steps),
+                "lr": float(lr),
+                "window_size": window_size,
+                "stride": stride,
+                "train_windows": len(train_windows),
+                "val_windows": len(val_loader.dataset) if val_loader is not None else 0,
+                **self._calib_to_yaml(calib),
+            },
+            report_yaml,
+        )
         return calib
 
     def display_test(self, dataset, mode):

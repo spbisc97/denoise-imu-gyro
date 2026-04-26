@@ -46,6 +46,9 @@ def yload(*f_names):
 def ydump(yaml_dict, *f_names):
     """YAML dump"""
     f_name = os.path.join(*f_names)
+    parent = os.path.dirname(f_name)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with open(f_name, 'w') as f:
         yaml.safe_dump(_yaml_sanitize(yaml_dict), f, default_flow_style=False)
 
