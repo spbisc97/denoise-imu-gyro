@@ -19,6 +19,14 @@ def add_common_entrypoint_args(
     parser.add_argument("--mode", choices=["auto", "train", "test", "smoke", "calibrate"], default="auto")
     parser.add_argument("--data-dir", default=default_data_dir)
     parser.add_argument("--address", default=default_address, help="Weights/run to test: 'last' or a path")
+    parser.add_argument(
+        "--init-address",
+        default=None,
+        help=(
+            "Training only: initialize the new run from weights.pt in an existing run "
+            "('last' or an explicit run path). This is fine-tuning, not exact resume."
+        ),
+    )
 
     parser.add_argument(
         "--calib-baseline",
@@ -195,6 +203,7 @@ def apply_common_entrypoint_overrides(
 
 
 def apply_calib_args_for_train(process: Any, args: argparse.Namespace) -> None:
+    process.init_weights_address = args.init_address
     process.init_from_calib_baseline = bool(args.calib_init)
     process.freeze_calib_params = bool(args.calib_freeze)
     process.calib_source = args.calib_source

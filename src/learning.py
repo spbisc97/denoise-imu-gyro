@@ -31,6 +31,7 @@ class LearningBasedProcessing:
         self.dt = dt # (s)
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.show_plots = False
+        self.init_weights_address = None
         self.address, self.tb_address = self.find_address(address)
         if address is None:  # create new address
             pdump(self.net_params, self.address, 'net_params.p')
@@ -77,6 +78,41 @@ class LearningBasedProcessing:
                 print(f"[WARN] Missing keys: {missing}")
             if unexpected:
                 print(f"[WARN] Unexpected keys: {unexpected}")
+        self.net.to(self.device)
+
+    def find_init_weights_address(self, address):
+        if address == 'last':
+            candidates = []
+            for name in sorted(os.listdir(self.res_dir)):
+                candidate = os.path.join(self.res_dir, name)
+                if candidate == self.address:
+                    continue
+                if os.path.isfile(os.path.join(candidate, 'weights.pt')):
+                    candidates.append(candidate)
+            if not candidates:
+                raise FileNotFoundError(
+                    f"No previous runs with weights.pt found in {self.res_dir!r}."
+                )
+            return candidates[-1]
+        return address
+
+    def load_init_weights(self, address):
+        address = self.find_init_weights_address(address)
+        path_weights = os.path.join(address, 'weights.pt')
+        if not os.path.isfile(path_weights):
+            raise FileNotFoundError(f"Initial weights not found: {path_weights!r}")
+        print(f"[INFO] Initializing training from weights: {path_weights}")
+        weights = torch.load(path_weights, map_location=self.device)
+        try:
+            self.net.load_state_dict(weights)
+        except RuntimeError as e:
+            print(f"[WARN] Strict init load failed ({e}); retrying with strict=False")
+            missing, unexpected = self.net.load_state_dict(weights, strict=False)
+            if missing:
+                print(f"[WARN] Missing init keys: {missing}")
+            if unexpected:
+                print(f"[WARN] Unexpected init keys: {unexpected}")
+        ydump({"init_address": address, "weights": path_weights}, self.address, "init_weights.yaml")
         self.net.to(self.device)
 
     def build_optimizer(self, Optimizer, optimizer_params):
@@ -130,6 +166,9 @@ class LearningBasedProcessing:
 
         hparams = self.get_hparams(dataset_class, dataset_params, train_params)
         ydump(hparams, self.address, 'hparams.yaml')
+
+        if self.init_weights_address:
+            self.load_init_weights(self.init_weights_address)
 
         # define datasets
         dataset_train = dataset_class(**dataset_params, mode='train')
@@ -774,11 +813,11 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         axs[2].set(xlabel='$t$ (min)', ylabel='yaw (deg)')
 
         for i in range(3):
-            axs[i].plot(self.ts, gt[:, i], color='black', label=r'Reference')
-            axs[i].plot(self.ts, imu_rpys[:, i], color='red', label=r'Std IMU')
-            axs[i].plot(self.ts, net_rpys[:, i], color='blue', label=r'LLyte IMU')
+            axs[i].plot(self.ts, gt[:, i], color='black', label=r'Reference', linewidth=1.5, zorder=4)
+            axs[i].plot(self.ts, imu_rpys[:, i], color='red', label=r'Std IMU', linewidth=1.0, zorder=1)
             if cal_rpys is not None:
-                axs[i].plot(self.ts, cal_rpys[:, i], color='green', label=r'cal IMU')
+                axs[i].plot(self.ts, cal_rpys[:, i], color='green', label=r'Calibrated IMU', linewidth=1.0, zorder=2)
+            axs[i].plot(self.ts, net_rpys[:, i], color='blue', label=r'Network IMU', linewidth=1.8, zorder=5)
             axs[i].set_xlim(self.ts[0], self.ts[-1])
         self.savefig(axs, fig, 'orientation')
 
@@ -795,10 +834,10 @@ class GyroLearningBasedProcessing(LearningBasedProcessing):
         axs[2].set(xlabel='$t$ (min)', ylabel='yaw (deg)')
 
         for i in range(3):
-            axs[i].plot(self.ts, raw_err[:, i], color='red', label=r'Std IMU')
-            axs[i].plot(self.ts, net_err[:, i], color='blue', label=r'LLyte IMU')
+            axs[i].plot(self.ts, raw_err[:, i], color='red', label=r'Std IMU', linewidth=1.0, zorder=1)
             if cal_Rots is not None:
-                axs[i].plot(self.ts, cal_err[:, i], color='green', label=r'cal IMU')
+                axs[i].plot(self.ts, cal_err[:, i], color='green', label=r'Calibrated IMU', linewidth=1.0, zorder=2)
+            axs[i].plot(self.ts, net_err[:, i], color='blue', label=r'Network IMU', linewidth=1.8, zorder=4)
             axs[i].plot(self.ts, torch.zeros(N), color='black', linestyle='--')
             axs[i].set_ylim(-10, 10)
             axs[i].set_xlim(self.ts[0], self.ts[-1])

@@ -216,6 +216,8 @@ Calibrated-IMU workflow lives in `src/learning.py`:
   `--mode test` does not fit calibration
 - default train-time initialization of learned calibration params; use
   `--no-calib-init` or `--no-calib-freeze` for ablations
+- `--init-address <last|run>` starts a new training run from an existing
+  `weights.pt` for fine-tuning; it does not restore optimizer/scheduler state
 - `--mode calibrate` recomputes and saves the persistent static calibration
 - `--calib-source {static,fit,none}` selects persistent YAML, run-local fit,
   or no static initialization

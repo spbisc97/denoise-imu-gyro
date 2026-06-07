@@ -113,9 +113,16 @@ class BaseDataset(Dataset):
             max_start = N_max - self.N
             n0 = int(torch.randint(0, max_start + 1, (1, )).item()) if max_start > 0 else 0
             nend = n0 + self.N
-        elif self._val: # end sequence
+        elif self._val: # end sequence, with a full-sequence fallback for short validation logs
             n0 = self.max_train_freq + self.N
+            if n0 >= N_max:
+                n0 = 0
             nend = N_max - ((N_max - n0) % self.max_train_freq)
+            if nend <= n0:
+                raise ValueError(
+                    f"Sequence {self.sequences[i]!r} has no validation samples after "
+                    f"alignment to max_train_freq={self.max_train_freq}."
+                )
         else:  # full sequence
             n0 = 0
             nend = N_max - (N_max % self.max_train_freq)
